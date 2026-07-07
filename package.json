@@ -1,0 +1,27 @@
+{
+  "name": "ensureok-startup-collector",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "创业公司保障画像采集器 —— 三段式问卷 + 确定性缺口诊断反馈,纯前端,留资/埋点回流 EnsureOK 现有 API",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.2",
+    "vite": "^5.0.10",
+    "vitest": "^4.1.6"
+  }
+}
