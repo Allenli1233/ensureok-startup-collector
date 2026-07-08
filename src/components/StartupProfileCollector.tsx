@@ -1,12 +1,12 @@
 /**
- * StartupProfileCollector —— 创业公司保障画像采集器(国内版)
+ * StartupProfileCollector —— 创业公司保障画像采集器(国内版 · 独立站,移植自主站 /qiye/profile)
  *
- * 独立纯前端采集器(移植自 EnsureOK 主站 /qiye/profile)。三段式采集(联系人档案 →
- * 公司基本盘 → 三条需求线)→ 确定性缺口诊断预览 →「预约顾问」留资。字段/规则/合规
- * 文案全部在 src/config/startupProfileCollector.ts,本组件只做渲染、条件展开与提交。
+ * 三段式采集(联系人档案 → 公司基本盘 → 三条需求线)→ 确定性缺口诊断预览 →
+ * 「预约顾问」留资。字段/规则/合规文案全部在 src/config/startupProfileCollector.ts,
+ * 本组件只做渲染、条件展开与提交。
  *
- * 留资/埋点跨域回流 EnsureOK 现有服务(apiUrl → /api/startup-leads、/api/events),
- * 数据进主站 startup_leads 表与 admin 看板;本 repo 不含后端。
+ * 与 /qiye(StartupGapCheck)的关系:同一条 PMF 业务线的深版采集器,复用
+ * startup_leads 落库(多传 profile 全量画像)与 tracker 埋点管道。
  *
  * 埋点(北极星漏斗):
  *   startup_profile.page_view(挂载)→ startup_profile.preview_viewed(诊断完成率分子/
@@ -15,14 +15,15 @@
  * 合规红线(P0):不出现保费金额、不出现「具体产品+保司」报价、无「立即投保/购买」CTA;
  * CTA 仅为「预约顾问领取完整体检报告」,持牌出单披露见 COLLECTOR_DISCLAIMER。
  *
- * 纪律:不接 i18n(单市场 PMF,中文硬编码)、不引新依赖、无 OCR/agent/账号/支付。
+ * 纪律同 /qiye:不接 i18n(单市场 PMF,中文硬编码)、不引新依赖、无 OCR/agent/账号/支付。
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LogoMark } from './LogoMark';
-import { track } from '../api/tracker';
 import { apiUrl } from '../api/config';
+import { track } from '../api/tracker';
 import {
+  OVERSEAS_COUNTRIES,
   COLLECTOR_PRIVACY_NOTICE,
   COLLECTOR_DISCLAIMER,
   COLLECTOR_SUCCESS_TITLE,
@@ -84,7 +85,8 @@ export function StartupProfileCollector() {
   };
 
   const contactOk = phone.trim().length > 0 || wechat.trim().length > 0;
-  const answersOk = visible.every((q) => !!answers[q.id]);
+  // optional 题(如出海国家多选)不纳入必答;其余可见题需有答案
+  const answersOk = visible.every((q) => q.optional || !!answers[q.id]);
   // 诊断只依赖问卷答案(纯前端确定性规则)——联系方式不是获取诊断的条件,
   // 与隐私声明逐字一致;联系人必填校验推迟到「预约顾问」提交步(服务端本就强制)。
   // 这同时保证 preview_viewed 分母与 /qiye 基线口径可比(无留资摩擦污染)。
@@ -154,6 +156,16 @@ export function StartupProfileCollector() {
         answers: prunedAnswers,
         industryOther:
           answers.industry === 'other' && industryOther.trim() ? industryOther.trim() : undefined,
+        // 有融资时才带融资额;未融资/留空不带
+        fundingAmount:
+          answers.funding && answers.funding !== 'none' && answers.fundingAmount?.trim()
+            ? answers.fundingAmount.trim()
+            : undefined,
+        // 出海(b0=yes)且选了国家才带;b0 改回否时不落库(与 prune 同纪律)
+        overseasCountries:
+          answers.b0 === 'yes' && answers.overseasCountries && answers.overseasCountries.length > 0
+            ? answers.overseasCountries
+            : undefined,
         phone: phone.trim() || undefined,
         wechat: wechat.trim() || undefined,
       },
@@ -161,7 +173,6 @@ export function StartupProfileCollector() {
     };
 
     try {
-      // 跨域提交到 EnsureOK 现有留资口(去 credentials:匿名公开口,不需主站 cookie 身份)
       const res = await fetch(apiUrl('/api/startup-leads'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -261,22 +272,32 @@ export function StartupProfileCollector() {
                   {q.label}
                   {q.sub && <span style={styles.questionSub}>{q.sub}</span>}
                 </div>
-                <div style={styles.chipRow}>
-                  {q.options.map((opt) => {
-                    const active = answers[q.id] === opt.value;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => setAnswer(q.id, opt.value)}
-                        style={{ ...styles.chip, ...(active ? styles.chipActive : {}) }}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                {q.widget === 'countries' ? (
+                  <CountryMultiSelect
+                    value={answers.overseasCountries ?? []}
+                    onChange={(next) => {
+                      setAnswers((prev) => ({ ...prev, overseasCountries: next }));
+                      setValidationMsg('');
+                    }}
+                  />
+                ) : (
+                  <div style={styles.chipRow}>
+                    {q.options.map((opt) => {
+                      const active = answers[q.id] === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setAnswer(q.id, opt.value)}
+                          style={{ ...styles.chip, ...(active ? styles.chipActive : {}) }}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {q.allowOtherText && answers[q.id] === 'other' && (
                   <input
                     style={{ ...styles.input, marginTop: 10, marginBottom: 0 }}
@@ -284,6 +305,18 @@ export function StartupProfileCollector() {
                     value={industryOther}
                     onChange={(e) => setIndustryOther(e.target.value)}
                     aria-label="行业补充"
+                  />
+                )}
+                {q.amountInput && answers[q.id] && answers[q.id] !== q.amountInput.showWhenNot && (
+                  <input
+                    style={{ ...styles.input, marginTop: 10, marginBottom: 0 }}
+                    placeholder={q.amountInput.placeholder}
+                    value={answers.fundingAmount ?? ''}
+                    onChange={(e) =>
+                      setAnswers((prev) => ({ ...prev, fundingAmount: e.target.value }))
+                    }
+                    aria-label="融资额"
+                    inputMode="numeric"
                   />
                 )}
               </div>
@@ -396,6 +429,85 @@ export function StartupProfileCollector() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 国家/地区多选控件(可复用):常见出海国家勾选 + 自由文字输入自定义,全部多选。
+ * value 是已选集合(勾选项的 value + 自定义文字条目);onChange 回传新集合。
+ */
+function CountryMultiSelect({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [custom, setCustom] = useState('');
+  const toggle = (v: string) => {
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  };
+  const addCustom = () => {
+    const t = custom.trim();
+    // 去重,且不与预设国家的中文名重复(避免同一国家两种表示)
+    if (t && !value.includes(t) && !OVERSEAS_COUNTRIES.some((c) => c.label === t)) {
+      onChange([...value, t]);
+    }
+    setCustom('');
+  };
+  const customEntries = value.filter((v) => !OVERSEAS_COUNTRIES.some((c) => c.value === v));
+  return (
+    <div>
+      <div style={styles.chipRow}>
+        {OVERSEAS_COUNTRIES.map((c) => {
+          const active = value.includes(c.value);
+          return (
+            <button
+              key={c.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => toggle(c.value)}
+              style={{ ...styles.chip, ...(active ? styles.chipActive : {}) }}
+            >
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
+      {customEntries.length > 0 && (
+        <div style={{ ...styles.chipRow, marginTop: 8 }}>
+          {customEntries.map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => toggle(v)}
+              style={{ ...styles.chip, ...styles.chipActive }}
+              aria-label={`移除 ${v}`}
+            >
+              {v} ✕
+            </button>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <input
+          style={{ ...styles.input, flex: 1, marginBottom: 0 }}
+          placeholder="其它国家 / 地区,回车或点添加"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addCustom();
+            }
+          }}
+          aria-label="自定义国家"
+        />
+        <button type="button" onClick={addCustom} style={{ ...styles.chip, flexShrink: 0 }}>
+          添加
+        </button>
+      </div>
     </div>
   );
 }

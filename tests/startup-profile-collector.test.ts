@@ -54,10 +54,10 @@ describe('COLLECTOR_QUESTIONS / visibleQuestions(条件展开)', () => {
     expect(visibleQuestions({ ...baseline(), industry: 'ai' }).map((q) => q.id)).toContain('c3');
   });
 
-  it('每题 label 非空且 ≥2 个选项', () => {
+  it('每题 label 非空;单选题 ≥2 选项,widget 题(国家多选)自带选项集', () => {
     for (const q of COLLECTOR_QUESTIONS) {
       expect(q.label.trim().length).toBeGreaterThan(0);
-      expect(q.options.length).toBeGreaterThanOrEqual(2);
+      if (!q.widget) expect(q.options.length).toBeGreaterThanOrEqual(2);
     }
   });
 });
@@ -112,11 +112,29 @@ describe('diagnoseGaps · 线 B 出海合同(最高价值线)', () => {
     expect(d.findings.some((x) => x.id === 'overseas_pkg')).toBe(false);
   });
 
-  it('B2=是 → coverage 强调实体产品出口;B3 市场影响附注', () => {
-    const d = diagnoseGaps({ ...baseline(), b0: 'yes', b2: 'yes', b3: 'na' });
+  it('B2=是 → coverage 强调实体产品出口;出海国家驱动市场附注', () => {
+    const d = diagnoseGaps({ ...baseline(), b0: 'yes', b2: 'yes', overseasCountries: ['us'] });
     const f = d.findings.find((x) => x.id === 'overseas_pkg');
     expect(f!.coverage).toContain('实体产品出口');
-    expect(f!.note!).toContain('北美');
+    expect(f!.note!).toContain('美国');
+    expect(f!.note!).toContain('北美'); // us → na 区域提示
+  });
+
+  it('出海国家多选:混合预设+自定义,note 列出全部并含命中区域提示', () => {
+    const d = diagnoseGaps({ ...baseline(), b0: 'yes', overseasCountries: ['us', 'de', '巴西'] });
+    const f = d.findings.find((x) => x.id === 'overseas_pkg');
+    expect(f!.note!).toContain('美国');
+    expect(f!.note!).toContain('德国');
+    expect(f!.note!).toContain('巴西'); // 自定义文字条目原样保留
+    expect(f!.note!).toContain('北美'); // us → na
+    expect(f!.note!).toContain('欧洲'); // de → eu
+  });
+
+  it('B0=是但未选国家 → 仍出出海缺口,无市场附注(国家非必填)', () => {
+    const d = diagnoseGaps({ ...baseline(), b0: 'yes', b1: 'not_yet' });
+    const f = d.findings.find((x) => x.id === 'overseas_pkg');
+    expect(f).toBeTruthy();
+    expect(f!.note).toBeUndefined();
   });
 });
 
@@ -126,6 +144,8 @@ describe('diagnoseGaps · 融资/专利/线 C', () => {
     expect(diagnoseGaps({ ...baseline(), funding: 'b_plus' }).findings.find((x) => x.id === 'dno_b')!.urgency).toBe('high');
     expect(diagnoseGaps({ ...baseline(), funding: 'pre_a' }).findings.find((x) => x.id === 'dno_pre')!.urgency).toBe('advice');
     expect(diagnoseGaps({ ...baseline(), funding: 'none' }).findings.some((x) => x.id.startsWith('dno'))).toBe(false);
+    // 天使轮从「未融资/天使」拆出后单独成档,同样不触发董责(归基础保障)
+    expect(diagnoseGaps({ ...baseline(), funding: 'angel' }).findings.some((x) => x.id.startsWith('dno'))).toBe(false);
   });
 
   it('已授权专利 → 知识产权险 + 张江/浦东补贴提示', () => {
@@ -156,7 +176,7 @@ describe('diagnoseGaps · 融资/专利/线 C', () => {
       headcount: 'gt100', a1: 'no', a2: 'yes',
       industry: 'ai', c3: 'yes', c1: 'yes', c2: 'yes',
       patent: 'granted', funding: 'b_plus',
-      b0: 'yes', b1: 'not_yet', b2: 'yes', b3: 'na',
+      b0: 'yes', b1: 'not_yet', b2: 'yes', overseasCountries: ['us'],
     });
     expect(d.mandatoryCount).toBe(0);
   });
@@ -205,7 +225,7 @@ describe('合规护栏(P0 红线)', () => {
   it('全部诊断文案不出现具体保费金额(「X 元」)与「立即投保/立即购买」', () => {
     // 穷举有代表性的高命中画像,聚合全部输出文案做红线扫描
     const profiles: CollectorAnswers[] = [
-      { ...baseline(), headcount: 'gt100', a1: 'no', a2: 'yes', b0: 'yes', b1: 'yes', b2: 'yes', b3: 'na', funding: 'ipo', patent: 'granted', c1: 'yes', c2: 'yes', industry: 'ai', c3: 'yes' },
+      { ...baseline(), headcount: 'gt100', a1: 'no', a2: 'yes', b0: 'yes', b1: 'yes', b2: 'yes', overseasCountries: ['us', 'de'], funding: 'ipo', fundingAmount: '2亿人民币', patent: 'granted', c1: 'yes', c2: 'yes', industry: 'ai', c3: 'yes' },
       { ...baseline(), headcount: '31to100', a1: 'no', funding: 'b_plus', industry: 'fintech', c1: 'yes', c2: 'unknown' },
       { ...baseline(), industry: 'ecom', funding: 'pre_a' },
     ];

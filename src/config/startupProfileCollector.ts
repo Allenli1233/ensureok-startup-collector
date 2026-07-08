@@ -27,6 +27,10 @@ export type QuestionId =
 /** 答案集合:questionId → 选项 value;industryOther 为「其他」行业的补充文本 */
 export type CollectorAnswers = Partial<Record<QuestionId, string>> & {
   industryOther?: string;
+  /** 有融资时的融资额(自由文本,纯采集给顾问,不进确定性诊断) */
+  fundingAmount?: string;
+  /** 出海目标国家/地区多选:勾选项的 value + 自定义文字条目 */
+  overseasCountries?: string[];
 };
 
 export type QuestionOption = { value: string; label: string };
@@ -42,7 +46,32 @@ export type QuestionDef = {
   visible?: (a: CollectorAnswers) => boolean;
   /** industry=other 时展示补充文本框 */
   allowOtherText?: boolean;
+  /** 'countries' = 用国家多选控件渲染(答案存 overseasCountries,不占 answers[id]) */
+  widget?: 'countries';
+  /** 选了 ≠ showWhenNot 的值时,在该题下追加金额自由文本输入(存 fundingAmount) */
+  amountInput?: { showWhenNot: string; placeholder: string };
+  /** true = 不纳入必答校验(如国家多选属深挖细节,可留空) */
+  optional?: boolean;
 };
+
+/** 出海目标国家/地区(勾选项)。value 稳定标识,region 供诊断生成市场提示;自定义国家走文字输入。 */
+export const OVERSEAS_COUNTRIES: Array<{ value: string; label: string; region: string }> = [
+  { value: 'us', label: '美国', region: 'na' },
+  { value: 'ca', label: '加拿大', region: 'na' },
+  { value: 'uk', label: '英国', region: 'eu' },
+  { value: 'de', label: '德国', region: 'eu' },
+  { value: 'fr', label: '法国', region: 'eu' },
+  { value: 'nl', label: '荷兰', region: 'eu' },
+  { value: 'jp', label: '日本', region: 'apac' },
+  { value: 'kr', label: '韩国', region: 'apac' },
+  { value: 'au', label: '澳大利亚', region: 'apac' },
+  { value: 'sg', label: '新加坡', region: 'sea' },
+  { value: 'my', label: '马来西亚', region: 'sea' },
+  { value: 'id', label: '印尼', region: 'sea' },
+  { value: 'th', label: '泰国', region: 'sea' },
+  { value: 'ae', label: '阿联酋', region: 'mena' },
+  { value: 'sa', label: '沙特', region: 'mena' },
+];
 
 export const COLLECTOR_QUESTIONS: QuestionDef[] = [
   // ── 第二段 · 公司基本盘 ──
@@ -78,11 +107,14 @@ export const COLLECTOR_QUESTIONS: QuestionDef[] = [
     section: 'company',
     label: '融资阶段',
     options: [
-      { value: 'none', label: '未融资 / 天使' },
+      { value: 'none', label: '未融资' },
+      { value: 'angel', label: '天使轮' },
       { value: 'pre_a', label: 'Pre-A / A 轮' },
       { value: 'b_plus', label: 'B 轮及以后' },
       { value: 'ipo', label: '已在 IPO / 对赌路径' },
     ],
+    // 选了任一「有融资」档(≠未融资)→ 追加融资额输入(选填,纯采集给顾问)
+    amountInput: { showWhenNot: 'none', placeholder: '本轮 / 累计融资额(选填,如 5000万人民币 / $8M)' },
   },
   {
     id: 'patent',
@@ -152,13 +184,11 @@ export const COLLECTOR_QUESTIONS: QuestionDef[] = [
   {
     id: 'b3',
     section: 'lineB',
-    label: '主要目标市场?',
-    options: [
-      { value: 'na', label: '北美' },
-      { value: 'eu', label: '欧洲' },
-      { value: 'sea', label: '东南亚' },
-      { value: 'other', label: '其他' },
-    ],
+    label: '目标国家 / 地区(可多选)',
+    sub: '勾选或手动输入,支持多选',
+    options: [], // 用 widget:'countries' 渲染,答案存 overseasCountries
+    widget: 'countries',
+    optional: true, // 深挖细节,可留空,不阻断诊断
     visible: (a) => a.b0 === 'yes',
   },
 
@@ -235,11 +265,25 @@ export const URGENCY_META: Record<GapUrgency, { label: string; rank: number }> =
   advice: { label: '建议关注', rank: 2 },
 };
 
-const B3_MARKET_NOTE: Record<string, string> = {
+const REGION_NOTE: Record<string, string> = {
   na: '北美市场通常要求更高的责任限额与标准化 COI 格式。',
   eu: '欧洲市场普遍关注与数据合规(GDPR)联动的责任要求。',
   sea: '东南亚市场的合同保险要求差异较大,以具体合同条款为准。',
+  apac: '亚太成熟市场对合同保险与数据合规均有较高要求。',
+  mena: '中东市场的准入与合同要求差异较大,以具体项目条款为准。',
 };
+
+/** 出海目标国家 → 市场提示:列出选中市场 + 命中区域的通用提示(确定性,不涉产品/价格) */
+function overseasNote(countries?: string[]): string | undefined {
+  if (!countries || countries.length === 0) return undefined;
+  const known = OVERSEAS_COUNTRIES.filter((c) => countries.includes(c.value));
+  const customs = countries.filter((v) => !OVERSEAS_COUNTRIES.some((c) => c.value === v));
+  const labels = [...known.map((c) => c.label), ...customs];
+  const regionNotes = [...new Set(known.map((c) => c.region))]
+    .map((r) => REGION_NOTE[r])
+    .filter(Boolean);
+  return [`目标市场:${labels.join('、')}。`, ...regionNotes].join(' ');
+}
 
 /**
  * 三条线规则匹配 → 敞口清单 + 紧迫度分级 + 补贴提示。
@@ -294,7 +338,7 @@ export function diagnoseGaps(a: CollectorAnswers): CollectorDiagnosis {
   // B0=是 → 高优先级「出海保障包」;B1=是 → 最高优先级·合同强制型·窗口以天计
   if (a.b0 === 'yes') {
     const coiForced = a.b1 === 'yes';
-    const marketNote = a.b3 ? B3_MARKET_NOTE[a.b3] : undefined;
+    const marketNote = overseasNote(a.overseasCountries);
     const notes: string[] = [];
     if (coiForced) notes.push('对方已要求保险证明(COI)——合同强制型缺口,窗口以天计,建议优先处理。');
     if (marketNote) notes.push(marketNote);
