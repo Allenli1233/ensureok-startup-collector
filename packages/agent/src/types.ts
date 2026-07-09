@@ -38,6 +38,18 @@ export interface RecommendedProduct {
   insurer: string;
   source: 'product_db';
   sourceFile: string;
+  /** 匹配理由(结构化,基于画像/产品维度;非 LLM 编造) */
+  matchReason?: string;
+}
+
+/** 推荐理由的可解释锚点(§7.4:缺口×画像×条款,前端渲染成可点 chip) */
+export interface RationaleDriver {
+  /** 命中的诊断缺口标题 */
+  gap?: string;
+  /** 画像维度(如「有专利」「出海 美国」「SaaS」) */
+  profile?: string;
+  /** 关联条款(keyClauses 里的一条要点摘要) */
+  clause?: string;
 }
 
 export interface PricingHint {
@@ -147,6 +159,8 @@ export interface ProposalItem {
   qualityScore?: number;
   /** 逐轮评分卡(采纳版 + 各重写版,可观测) */
   scoreCards?: ScoreCard[];
+  /** 采纳版在 scoreCards 里的下标(采纳版≠末轮时据此定位真实指标) */
+  adoptedScoreCardIndex?: number;
   /** 重写次数 */
   revisions?: number;
   /** 本险种实际 LLM 调用数(generate + judge 累计;可观测,治静默降级) */
