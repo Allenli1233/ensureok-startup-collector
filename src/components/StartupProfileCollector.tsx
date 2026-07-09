@@ -25,6 +25,7 @@ import { track } from '../api/tracker';
 import { useProposal } from '../proposal/useProposal';
 import { buildProposalRequest } from '../proposal/buildRequest';
 import { ProposalView } from '../proposal/ProposalView';
+import type { ProposalRequest } from '../proposal/types';
 import {
   OVERSEAS_COUNTRIES,
   COLLECTOR_PRIVACY_NOTICE,
@@ -76,6 +77,15 @@ export function StartupProfileCollector() {
 
   // 方案生成(提交成功后异步:后端 Agent 结合诊断+RAG+产品库生成一份风险保障方向说明)
   const proposal = useProposal();
+  // 调参重生成:上一版险种名(用于生成后对比新增/移除)
+  const [prevLineNames, setPrevLineNames] = useState<string[] | undefined>(undefined);
+
+  // 调整画像重新生成 —— 复用既有全量重生成路径(buildProposalRequest + proposal.start)
+  const handleRegenerate = (profile: ProposalRequest['profile']) => {
+    const base = buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis });
+    if (proposal.proposal) setPrevLineNames(proposal.proposal.items.map((i) => i.lineName));
+    void proposal.start({ ...base, profile });
+  };
 
   useEffect(() => {
     track('startup_profile.page_view');
@@ -216,7 +226,7 @@ export function StartupProfileCollector() {
   return (
     <div style={styles.container}>
       {/* ── 品牌行(复用 /qiye 观感) ── */}
-      <div style={styles.header}>
+      <div className="no-print" style={styles.header}>
         <div style={styles.brandRow}>
           <div style={styles.logoBox}>
             <LogoMark size={30} title="EnsureOK.ai · 创业公司保障画像" />
@@ -231,8 +241,8 @@ export function StartupProfileCollector() {
       </div>
 
       {/* ── 第 1 段 · 联系人档案 ── */}
-      <div style={styles.sectionLabel}>第 1 步 · 联系人档案</div>
-      <div ref={contactCardRef} style={styles.card}>
+      <div className="no-print" style={styles.sectionLabel}>第 1 步 · 联系人档案</div>
+      <div className="no-print" ref={contactCardRef} style={styles.card}>
         <input
           style={styles.input}
           placeholder="你的称呼"
@@ -270,7 +280,7 @@ export function StartupProfileCollector() {
         if (questions.length === 0) return null;
         const meta = SECTION_META[key];
         return (
-          <div key={key} style={styles.section}>
+          <div key={key} className="no-print" style={styles.section}>
             <div style={styles.sectionLabel}>
               {key === 'company' ? '第 2 步 · ' : idx === 1 ? '第 3 步 · 三条风险线快测 —— ' : ''}
               {meta.title}
@@ -357,8 +367,8 @@ export function StartupProfileCollector() {
       {/* ── 缺口预览 + 预约 CTA ── */}
       {showPreview && (
         <div ref={previewAnchorRef} style={styles.previewSection}>
-          <div style={styles.sectionLabel}>你的保障缺口预览</div>
-          <div style={styles.summaryLine}>
+          <div className="no-print" style={styles.sectionLabel}>你的保障缺口预览</div>
+          <div className="no-print" style={styles.summaryLine}>
             {diagnosis.total > 0 ? (
               <>
                 你有 <strong>{diagnosis.total}</strong> 项敞口待评估
@@ -375,7 +385,7 @@ export function StartupProfileCollector() {
             )}
           </div>
 
-          <div style={styles.gapList}>
+          <div className="no-print" style={styles.gapList}>
             {diagnosis.findings.map((f) => {
               const u = URGENCY_STYLE[f.urgency];
               return (
@@ -408,12 +418,12 @@ export function StartupProfileCollector() {
             })}
           </div>
 
-          <p style={styles.disclaimer}>{COLLECTOR_DISCLAIMER}</p>
+          <p className="no-print" style={styles.disclaimer}>{COLLECTOR_DISCLAIMER}</p>
 
           <div style={styles.ctaSection}>
             {submitState === 'success' ? (
               <>
-                <div style={styles.successBox}>
+                <div className="no-print" style={styles.successBox}>
                   <div style={styles.successTitle}>{COLLECTOR_SUCCESS_TITLE}</div>
                   <div style={styles.successSub}>{COLLECTOR_SUCCESS_SUB}</div>
                 </div>
@@ -441,7 +451,14 @@ export function StartupProfileCollector() {
                   </div>
                 )}
                 {proposal.status === 'ready' && proposal.proposal && (
-                  <ProposalView proposal={proposal.proposal} />
+                  <ProposalView
+                    proposal={proposal.proposal}
+                    onRegenerate={handleRegenerate}
+                    currentProfile={
+                      buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }).profile
+                    }
+                    previousLineNames={prevLineNames}
+                  />
                 )}
               </>
             ) : (

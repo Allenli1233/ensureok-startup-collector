@@ -8,6 +8,18 @@ export type GapUrgency = 'mandatory' | 'high' | 'advice';
 export interface RecommendedProduct {
   insurer: string;
   sourceFile: string;
+  /** 该保司为何匹配(可选;后端可产出)——短句/悬浮说明,缺省则只显示保司名 */
+  matchReason?: string;
+}
+
+/** 理由锚点:把"推荐理由"落到具体的缺口 / 画像 / 条款上(可选,三项至少有一项) */
+export interface RationaleDriver {
+  /** 触发缺口,如"雇主责任险未覆盖" */
+  gap?: string;
+  /** 命中画像,如"有专利" */
+  profile?: string;
+  /** 关联条款,如"承保工伤赔偿" */
+  clause?: string;
 }
 
 export interface PricingHint {
@@ -83,6 +95,8 @@ export interface ProposalItem {
   gapTitles: string[];
   coverageDirection: string;
   rationale: string;
+  /** 理由锚点 chips(可选;后端可产出)——把 rationale 落到具体缺口/画像/条款 */
+  rationaleDrivers?: RationaleDriver[];
   keyClauses: string[];
   recommendedProducts: RecommendedProduct[];
   pricing: PricingHint;
