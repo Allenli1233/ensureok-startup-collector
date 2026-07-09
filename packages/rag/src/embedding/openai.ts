@@ -1,3 +1,5 @@
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import type { EmbeddingProvider } from '../types';
 
 export interface OpenAIEmbeddingConfig {
@@ -18,9 +20,9 @@ interface EmbeddingResponse {
 }
 
 /**
- * OpenAI 兼容嵌入(Bearer + /embeddings)。用原生 fetch,无 SDK 依赖。
- * baseUrl 可指向 OpenAI 官方或大多数兼容中转;若用 Azure OpenAI(部署式路径 + api-key 头),需另配适配器。
- * key 只在后端从环境读入,绝不进前端产物。
+ * OpenAI 兼容嵌入(Bearer + /embeddings)。用 Node 内置 http/https 模块(非全局 fetch/undici)——
+ * 避免"http 服务 + undici 出站请求"并发时的原生崩溃(实测 Node 24 下会崩)。
+ * baseUrl 可指向 OpenAI 官方或大多数兼容中转;缺 /v1 会自动补。key 只在后端读入,绝不进前端。
  */
 export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   readonly id = 'openai';
@@ -46,8 +48,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   async embed(texts: string[]): Promise<number[][]> {
     const out: number[][] = [];
     for (let i = 0; i < texts.length; i += this.batchSize) {
-      const batch = texts.slice(i, i + this.batchSize);
-      out.push(...(await this.embedBatch(batch)));
+      out.push(...(await this.embedBatch(texts.slice(i, i + this.batchSize))));
     }
     return out;
   }
@@ -61,38 +62,30 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 
     let lastErr: unknown;
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), this.timeoutMs);
       try {
-        const res = await fetch(`${this.baseUrl}/embeddings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+        const res = await postJson(
+          `${this.baseUrl}/embeddings`,
+          { Authorization: `Bearer ${this.apiKey}` },
           body,
-          signal: ac.signal,
-        });
+          this.timeoutMs,
+        );
         if (res.status === 429 || res.status >= 500) {
-          throw new Error(`OpenAI embeddings HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+          throw new Error(`OpenAI embeddings HTTP ${res.status}: ${res.body.slice(0, 200)}`);
         }
-        if (!res.ok) {
-          // 4xx(非 429)通常不可重试(鉴权/参数错误),直接抛出
-          throw new NonRetryableError(`OpenAI embeddings HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+        if (res.status >= 400) {
+          throw new NonRetryableError(`OpenAI embeddings HTTP ${res.status}: ${res.body.slice(0, 300)}`);
         }
-        const ct = res.headers.get('content-type') ?? '';
-        if (!ct.includes('json')) {
-          // 200 但返回 HTML/文本 —— 多半是 base_url 配错(少 /v1、指到网页)或代理拦截页
-          const snippet = (await res.text()).slice(0, 160).replace(/\s+/g, ' ');
+        if (!res.contentType.includes('json')) {
           throw new NonRetryableError(
-            `OpenAI embeddings 返回非 JSON(content-type=${ct || '未知'})。多半是 OPENAI_BASE_URL 配错(应指向 OpenAI 兼容 API 且含 /v1)。响应片段: ${snippet}`,
+            `OpenAI embeddings 返回非 JSON(content-type=${res.contentType || '未知'})。多半是 OPENAI_BASE_URL 配错(应指向 OpenAI 兼容 API 且含 /v1)。响应片段: ${res.body.slice(0, 160).replace(/\s+/g, ' ')}`,
           );
         }
-        const json = (await res.json()) as EmbeddingResponse;
+        const json = JSON.parse(res.body) as EmbeddingResponse;
         return json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
       } catch (err) {
         lastErr = err;
         if (err instanceof NonRetryableError) throw err;
-        if (attempt < this.maxRetries) await sleep(500 * 2 ** attempt); // 固定指数退避
-      } finally {
-        clearTimeout(timer);
+        if (attempt < this.maxRetries) await sleep(500 * 2 ** attempt);
       }
     }
     throw new Error(`OpenAI embeddings 失败(已重试 ${this.maxRetries} 次): ${String(lastErr)}`);
@@ -101,10 +94,47 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 
 class NonRetryableError extends Error {}
 
-/** 归一化 base_url:去尾斜杠;若未以 /vN 结尾则补 /v1(容错用户少填 /v1 的常见情况) */
+/** 归一化 base_url:去尾斜杠;若未以 /vN 结尾则补 /v1(容错用户少填 /v1) */
 function normalizeBaseUrl(url: string): string {
   const u = url.replace(/\/+$/, '');
   return /\/v\d+$/.test(u) ? u : `${u}/v1`;
+}
+
+interface HttpResult {
+  status: number;
+  body: string;
+  contentType: string;
+}
+
+/** 用 node:http/https 发 POST JSON —— 不经全局 fetch(undici),规避与 http 服务并发的原生崩溃 */
+function postJson(urlStr: string, headers: Record<string, string>, bodyStr: string, timeoutMs: number): Promise<HttpResult> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlStr);
+    const doRequest = url.protocol === 'http:' ? httpRequest : httpsRequest;
+    const req = doRequest(
+      {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'http:' ? 80 : 443),
+        path: `${url.pathname}${url.search}`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers, 'Content-Length': Buffer.byteLength(bodyStr) },
+      },
+      (res) => {
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => {
+          data += c;
+        });
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, body: data, contentType: String(res.headers['content-type'] ?? '') }),
+        );
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('请求超时')));
+    req.write(bodyStr);
+    req.end();
+  });
 }
 
 function sleep(ms: number): Promise<void> {

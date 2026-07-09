@@ -1,6 +1,14 @@
 import { loadDeps } from './loadDeps';
 import { createServer } from './server';
 
+// 兜底:任何未捕获的 JS 异常/拒绝只记录、不让进程退出,避免一次生成出错拖垮整个服务。
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaughtException(已兜底,服务继续):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandledRejection(已兜底,服务继续):', reason);
+});
+
 const PORT = Number(process.env.AGENT_PORT ?? 8787);
 
 const deps = await loadDeps();
