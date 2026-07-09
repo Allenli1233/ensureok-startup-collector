@@ -21,6 +21,7 @@
     "rag:test": "npm run -w @ensureok/rag test",
     "rag:typecheck": "npm run -w @ensureok/rag typecheck",
     "agent:generate": "npm run -w @ensureok/agent generate --",
+    "agent:probe": "npm run -w @ensureok/agent probe:tools",
     "agent:test": "npm run -w @ensureok/agent test",
     "agent:typecheck": "npm run -w @ensureok/agent typecheck",
     "server:start": "npm run -w @ensureok/server start",

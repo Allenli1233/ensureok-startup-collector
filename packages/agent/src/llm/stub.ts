@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatProvider } from './types';
+import type { AssistantTurn, ChatMessage, ChatProvider } from './types';
 
 /**
  * 离线确定性桩(无需 key,供开发与单测)。
@@ -18,5 +18,10 @@ export class StubChatProvider implements ChatProvider {
       rationale: `[stub] 结合企业画像与检索到的条款证据,建议配置${line}`,
       keyClauses: [`[stub] ${line}关键条款要点(摘自证据)`],
     });
+  }
+
+  /** 桩不主动调工具:返回与 complete 同样的文本、无 tool_calls */
+  async completeWithTools(messages: ChatMessage[]): Promise<AssistantTurn> {
+    return { content: await this.complete(messages), toolCalls: [], finishReason: 'stop' };
   }
 }

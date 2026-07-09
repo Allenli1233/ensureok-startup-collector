@@ -10,6 +10,7 @@
   },
   "scripts": {
     "generate": "tsx scripts/generate.ts",
+    "probe:tools": "tsx scripts/probe-tools.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
