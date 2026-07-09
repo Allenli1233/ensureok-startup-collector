@@ -120,28 +120,48 @@ describe('check_compliance', () => {
     expect(r.data.clean, `应放行(勿误伤): ${text}`).toBe(true);
   };
 
-  describe('R1 保费:加固后覆盖的绕过', () => {
-    it('线索词近旁的裸数字(无单位)', () => {
+  describe('R1 保费:仅价格语境命中', () => {
+    it('线索词近旁的数字', () => {
       hit('年保费约 8000,性价比高。', 'R1_premium');
       hit('人均保费约 300/人。', 'R1_premium');
+      hit('年保费约￥５０００元。', 'R1_premium'); // 全角 + 符号
+      hit('保费约 ５０００。', 'R1_premium'); // 全角 + 线索词
     });
-    it('全角数字 + 货币符号/单位', () => {
-      hit('年保费约￥５０００元。', 'R1_premium');
-      hit('大约５０００元。', 'R1_premium');
-    });
-    it('中文数字裸量(无"元")靠线索词命中', () => {
+    it('中文数字裸量靠线索词/每单位命中', () => {
       hit('年保费约五万。', 'R1_premium');
       hit('保费大概三千。', 'R1_premium');
+      hit('大概五万元一年。', 'R1_premium'); // 金额 + 每单位(一年)
     });
-    it('外币金额', () => {
+    it('外币金额(始终视为价格)', () => {
       hit('年保费约 3000 美元。', 'R1_premium');
       hit('大约 $3000/年。', 'R1_premium');
       hit('USD 3000 起。', 'R1_premium');
     });
-    it('不误伤:产品名/成语/无价格语境', () => {
+    it('线索词稍远也命中(全年/每年兜住)', () => {
+      hit('综合保费方面,经测算全年大约需要 8000。', 'R1_premium');
+      hit('人均 300 每年。', 'R1_premium');
+    });
+    it('不误伤:保额/限额/免赔/人数/资本等承保内容(修复过度隐去)', () => {
+      clean('每次事故赔偿限额100万元,建议关注。');
+      clean('覆盖3万名员工的用工风险。');
+      clean('注册资本5000万元的企业适用。');
+      clean('免赔额1万元,超出部分按比例赔付。');
+      clean('保额最高可达100万元。');
       clean('百万医疗险保障范围广,建议关注免赔额。');
       clean('提醒:千万不要漏保上下班途中风险。');
-      clean('该险种保障责任清晰,理赔流程规范。');
+    });
+  });
+
+  describe('R5 绝对化承诺 + suspected 两级', () => {
+    it('绝对化承诺 → R5 硬拦', () => {
+      hit('本产品保证全额赔付。', 'R5_absolute');
+      hit('这款稳赔不亏。', 'R5_absolute');
+      hit('必赔,放心买。', 'R5_absolute');
+    });
+    it('可疑触发词 → suspected(转人工,不硬拦、clean 仍为 true)', () => {
+      const r = checkCompliance({ text: '这款很划算,别犹豫。' });
+      expect(r.ok && r.data.clean).toBe(true);
+      if (r.ok) expect(r.data.suspected.length).toBeGreaterThan(0);
     });
   });
 
