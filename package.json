@@ -4,12 +4,18 @@
   "version": "0.1.0",
   "type": "module",
   "description": "创业公司保障画像采集器 —— 三段式问卷 + 确定性缺口诊断反馈,纯前端,留资/埋点回流 EnsureOK 现有 API",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "catalog:test": "npm run -w @ensureok/catalog test",
+    "catalog:build": "npm run -w @ensureok/catalog build",
+    "catalog:typecheck": "npm run -w @ensureok/catalog typecheck"
   },
   "dependencies": {
     "react": "^18.2.0",

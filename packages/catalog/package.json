@@ -1,0 +1,22 @@
+{
+  "name": "@ensureok/catalog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "保险产品数据库解析器 —— 把 12 份『XX产品数据.md』解析成结构化 ProductCatalog(产品/保司/价格表),供 Agent 推荐与前端下钻使用",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsx scripts/build-catalog.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.3.2",
+    "vitest": "^4.1.6"
+  }
+}
