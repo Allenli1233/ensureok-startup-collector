@@ -31,4 +31,28 @@ describe('mockRequest', () => {
     expect(it0.pricing.disclaimer).toContain('承保由合作持牌');
     expect(it0.tier).toBe('tier1'); // mandatory → tier1
   });
+
+  it('信任层:首项带可信度分 + 结构化条款忠实度三态', async () => {
+    const p = await mockRequest(req);
+    const it0 = p.items[0];
+    expect(typeof it0.qualityScore).toBe('number');
+    expect(it0.keyClausesDetailed?.length).toBe(3);
+    const states = it0.keyClausesDetailed?.map((c) => c.faithfulness);
+    expect(states).toEqual(['entailed', 'unverified', 'not-supported']);
+    // 忠实条带真实 evidenceRefs;无支撑条为空
+    expect(it0.keyClausesDetailed?.[0].evidenceRefs.length).toBeGreaterThan(0);
+    expect(it0.keyClausesDetailed?.[2].evidenceRefs.length).toBe(0);
+  });
+
+  it('信任层:次项为降级/待核', async () => {
+    const p = await mockRequest(req);
+    expect(p.items[1].degraded).toBe(true);
+    expect(p.items[1].degradedReason).toBeTruthy();
+  });
+
+  it('概览:多条线时给出组合说明', async () => {
+    const p = await mockRequest(req);
+    expect(p.portfolio?.summary).toBeTruthy();
+    expect(p.portfolio?.overlaps?.length).toBeGreaterThan(0);
+  });
 });
