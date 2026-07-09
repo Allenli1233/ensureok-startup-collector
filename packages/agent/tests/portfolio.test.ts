@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { StubChatProvider } from '../src/llm/stub';
 import type { ChatProvider } from '../src/llm/types';
 import { portfolioReview } from '../src/portfolio';
-import { runToolLoop } from '../src/llm/toolRunner';
+import { parsePseudoToolCalls, runToolLoop } from '../src/llm/toolRunner';
 import { pricingFromComputed } from '../src/pricing';
 import type { ProposalItem } from '../src/types';
 
@@ -68,6 +68,17 @@ describe('PR5 runToolLoop', () => {
     expect(r.content).toBe('最终答案');
     expect(r.steps).toBe(1);
     expect(r.trace).toHaveLength(0);
+  });
+
+  it('伪协议解析:逐块非贪婪提取 + 解析失败显式打标(gap §11.1.1)', () => {
+    const good = parsePseudoToolCalls('先想想。<<TOOL>>{"name":"query_catalog","args":{"lineId":"cyber"}}<<END>> 再看 <<TOOL>>{"name":"check_compliance","args":{"text":"x"}}<<END>>');
+    expect(good.calls).toHaveLength(2);
+    expect(good.parseError).toBe(false);
+    expect(good.calls[0].function.name).toBe('query_catalog');
+    const bad = parsePseudoToolCalls('<<TOOL>>{坏 json}<<END>>');
+    expect(bad.calls).toHaveLength(0);
+    expect(bad.parseError).toBe(true); // 不静默
+    expect(parsePseudoToolCalls('普通作答,无工具块。').calls).toHaveLength(0);
   });
 
   it('一轮工具调用 → 回填后收敛,trace 记录', async () => {

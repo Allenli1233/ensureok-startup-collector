@@ -13,6 +13,21 @@ export const FIDELITY_MIN = 3;
 const KNOWN_INSURERS = [
   '中国人保', '人保财险', '平安', '太保', '太平洋', '中国人寿', '泰康', '中华联合', '大地', '阳光', '众安', '华泰', '安盛', '美亚', '史带', '国寿',
 ];
+/** 名字本身含保险词(如 中国人保/中国人寿)→ 出现即算保司引用 */
+const NAME_IS_INSURER = /(?:保险|财险|人寿|产险|人保|养老|再保)$/;
+/** 保司引用信号:名字后紧邻保险类后缀,或前面有"推荐/承保/由…"等引荐动词 */
+const INSURER_SUFFIX = '(?:保险|财险|人寿|产险|养老|再保|保司|保险公司|集团)';
+const REC_VERB = '(?:推荐|选择|承保|投保|由|选用|采用|使用|优先)';
+/**
+ * 判断某保司名在文本里是否为"保司引用"(而非普通词)。
+ * 规避 平安/阳光/大地/太平洋/国寿 等常用词误判(bug):裸子串不算,需后缀相邻或引荐动词在前。
+ */
+function isInsurerReference(text: string, name: string): boolean {
+  if (!text.includes(name)) return false;
+  if (NAME_IS_INSURER.test(name)) return true;
+  const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`${n}[^。；\\n]{0,3}${INSURER_SUFFIX}`).test(text) || new RegExp(`${REC_VERB}[^。；\\n]{0,3}${n}`).test(text);
+}
 
 const EXCLUSION_HEADINGS = ['除外', '责任免除', '免除', '不承保', '不保', '免赔'];
 const LIABILITY_HEADINGS = ['保险责任', '承保', '赔偿责任', '责任范围', '保障范围'];
@@ -31,7 +46,7 @@ export function scoreDeterministic(text: string, whitelist: string[]): Determini
   const hasPrice = flags.includes('R1_premium');
   const white = whitelist;
   const stray = KNOWN_INSURERS.find(
-    (name) => text.includes(name) && !white.some((w) => w.includes(name) || name.includes(w)),
+    (name) => !white.some((w) => w.includes(name) || name.includes(w)) && isInsurerReference(text, name),
   );
   return {
     compliance: { score: flags.length ? 0 : 5, verdict: flags.length ? 'fail' : 'pass', notes: flags },
@@ -93,9 +108,12 @@ export function applyFaithfulness(
 
     if (clause.clauseType === '除外' || clause.clauseType === '责任') {
       const headings = evidenceRefs.flatMap((id) => headingByChunk.get(id) ?? []).join(' ');
-      const want = clause.clauseType === '除外' ? EXCLUSION_HEADINGS : LIABILITY_HEADINGS;
-      const other = clause.clauseType === '除外' ? LIABILITY_HEADINGS : EXCLUSION_HEADINGS;
-      if (evidenceRefs.length && other.some((h) => headings.includes(h)) && !want.some((h) => headings.includes(h))) {
+      // 除外优先判定:'承保' 是 '不承保' 的子串,若不先剔除除外,责任类会被误判为命中(bug false-negative)
+      const hitExcl = EXCLUSION_HEADINGS.some((h) => headings.includes(h));
+      const hitLiab = !hitExcl && LIABILITY_HEADINGS.some((h) => headings.includes(h));
+      const wantHit = clause.clauseType === '除外' ? hitExcl : hitLiab;
+      const otherHit = clause.clauseType === '除外' ? hitLiab : hitExcl;
+      if (evidenceRefs.length && otherHit && !wantHit) {
         status = 'not-supported';
       }
     }

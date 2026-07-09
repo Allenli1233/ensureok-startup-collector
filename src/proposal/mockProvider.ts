@@ -31,11 +31,21 @@ export async function mockRequest(req: ProposalRequest): Promise<Proposal> {
       evidenceInsufficient: false,
     };
 
-    // 第 1 项:演示信任层——结构化条款(忠实/待核/无支撑三态)+ 证据下钻 + 可信度分
+    // 第 1 项:演示信任层——结构化条款(忠实/待核/无支撑/讲反 四态)+ 证据下钻 + 可信度分
+    //          + 理由锚点 chips + 保司 matchReason
     if (i === 0) {
       return {
         ...base,
         qualityScore: 92,
+        rationaleDrivers: [
+          { gap: '雇主责任险未覆盖' },
+          { profile: '有专利' },
+          { clause: '承保工伤赔偿' },
+        ],
+        recommendedProducts: [
+          { insurer: '中国人保', sourceFile: 'mock', matchReason: '(示例)高风险工种可扩展承保,理赔网点覆盖广' },
+          { insurer: '平安', sourceFile: 'mock', matchReason: '(示例)线上出单快,适合初创小团队' },
+        ],
         keyClausesDetailed: [
           {
             text: '(示例)赔偿限额:每人每次事故限额与累计限额',
@@ -53,6 +63,12 @@ export async function mockRequest(req: ProposalRequest): Promise<Proposal> {
             text: '(示例)免赔额 / 自负比例',
             evidenceRefs: [],
             faithfulness: 'not-supported',
+            clauseType: '免赔',
+          },
+          {
+            text: '(示例)条款称"全额赔付无免赔",与原文免赔约定相反',
+            evidenceRefs: ['chunk_emp_021'],
+            faithfulness: 'contradicted',
             clauseType: '免赔',
           },
         ],

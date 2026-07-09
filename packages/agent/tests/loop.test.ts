@@ -141,6 +141,34 @@ describe('对抗式 loop(五维评分)', () => {
   });
 });
 
+describe('取最优版:acceptability 优先(bug 复审)', () => {
+  it('首稿泄红线(weightedScore 高但 gate fail)不得盖过干净的达标重写', async () => {
+    let call = 0;
+    const chat: ChatProvider = {
+      id: 'seq',
+      model: 'seq',
+      async complete() {
+        call++;
+        return call === 1
+          ? JSON.stringify({ coverageDirection: '雇主责任险方向', rationale: '立即投保以覆盖工伤。', keyClauses: [{ text: '保工伤', evidence: [] }] })
+          : JSON.stringify({ coverageDirection: '雇主责任险方向', rationale: '结合用工阶段风险给出方向。', keyClauses: [{ text: '保工伤', evidence: [] }] });
+      },
+      async completeWithTools() {
+        return { content: '', toolCalls: [], finishReason: 'stop' };
+      },
+    };
+    const d = await deps([softPass(), softPass({ persuasion: 4 })]); // 首稿 gate fail(CTA),重写干净但说服力略降
+    d.chat = chat;
+    const p = await generateProposal(req, d);
+    const it = p.items[0];
+    expect(it.qualityScore).toBe(94); // 采纳干净的重写版(94),非泄红线的首稿(100)
+    expect(it.adoptedScoreCardIndex).toBe(1);
+    expect(it.degraded).toBeUndefined();
+    expect(it.complianceFlags).toBeUndefined();
+    expect(it.coverageDirection).not.toContain('待持牌顾问核对');
+  });
+});
+
 describe('PR5b 分阶段进度', () => {
   it('onProgress 逐阶段回调,末帧 stage=done 且全部 done', async () => {
     const snaps: string[] = [];

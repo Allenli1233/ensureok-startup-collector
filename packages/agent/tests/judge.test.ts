@@ -47,4 +47,20 @@ describe('LlmJudge 解析加固', () => {
     expect(s.fidelity).toBe(0);
     expect(s.persuasion).toBe(0);
   });
+
+  it('JSON + 尾随含花括号的散文 → 括号配平提取仍拿到真身(bug:贪婪 {…} 会畸形)', async () => {
+    const j = new LlmJudge(chatReturning('{"fidelity":4,"persuasion":3}\n注:详见附录{备注}。'), true);
+    const s = await j.scoreSoft(input);
+    expect(s.fidelity).toBe(4);
+    expect(s.persuasion).toBe(3);
+  });
+
+  it('claims 键漂移(idx 而非 index)→ 用数组位置兜底,不丢 claim(bug:fail-unsafe)', async () => {
+    const raw = '{"fidelity":5,"persuasion":5,"claims":[{"idx":0,"status":"not-supported","rebindTo":null}]}';
+    const j = new LlmJudge(chatReturning(raw), true);
+    const s = await j.scoreSoft(input);
+    expect(s.claims).toHaveLength(1);
+    expect(s.claims[0].index).toBe(0);
+    expect(s.claims[0].status).toBe('not-supported');
+  });
 });

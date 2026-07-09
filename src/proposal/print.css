@@ -12,30 +12,33 @@
 }
 
 @media print {
-  /* 只打印方案,隐藏问卷/按钮等其它内容 */
-  body * {
-    visibility: hidden;
-  }
-  .proposal-print,
-  .proposal-print * {
-    visibility: visible;
-  }
-  .proposal-print {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    padding: 0 8mm;
-  }
+  /*
+   * 打印隔离(修复空白尾页 + 多页裁切):
+   * 非方案内容一律 .no-print → display:none,彻底移出文档流(不再用
+   * visibility:hidden——那样元素仍占高度,会拖出空白尾页);方案容器不再
+   * position:absolute,保持正常文档流,才能自然分页 + break-inside 生效。
+   */
   .no-print {
     display: none !important;
   }
-  /* 打印时下钻全展开 */
+  .proposal-print {
+    margin: 0;
+    padding: 0 8mm;
+    width: auto;
+  }
+  /* 打印时下钻全展开(附录式) */
   .drilldown {
     display: block !important;
     break-inside: avoid;
   }
   .proposal-item {
+    break-inside: avoid;
+  }
+  /* 对比表:表头每页重复,行不跨页裁切 */
+  .proposal-compare thead {
+    display: table-header-group;
+  }
+  .proposal-compare tr {
     break-inside: avoid;
   }
 }

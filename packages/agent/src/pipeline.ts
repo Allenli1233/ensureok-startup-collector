@@ -3,7 +3,7 @@ import { retrieve, type EmbeddingProvider, type JsonVectorStore, type RetrievedC
 import { extractLineData } from './catalogData';
 import type { Judge, JudgeInput } from './judge';
 import type { ChatMessage, ChatProvider } from './llm/types';
-import { runToolLoop } from './llm/toolRunner';
+import { runPseudoToolLoop, runToolLoop } from './llm/toolRunner';
 import { planLines } from './lineMapping';
 import { portfolioReview } from './portfolio';
 import { buildPricing, pricingFromComputed } from './pricing';
@@ -13,7 +13,7 @@ import { checkCompliance } from './tools/checkCompliance';
 import { computePricing } from './tools/computePricing';
 import { createToolExecutor } from './tools/executor';
 import { PIPELINE_TOOL_DEFS } from './tools/toolDefs';
-import type { Citation, KeyClause, ProgressItem, ProgressSnapshot, Proposal, ProposalItem, ProposalRequest, ScoreCard, Verdict } from './types';
+import type { Citation, KeyClause, ProgressItem, ProgressSnapshot, Proposal, ProposalItem, ProposalRequest, RationaleDriver, ScoreCard, Verdict } from './types';
 
 export interface GenerateDeps {
   catalogs: Map<InsuranceLineId, ProductCatalog>;
@@ -29,6 +29,8 @@ export interface GenerateDeps {
   concurrency?: number;
   /** 开启 pipeline 内 tool-calling 循环(LLM 按需回查工具);默认关(用预检索单次生成)。中转不支持则自动收敛回退。 */
   enableToolCalling?: boolean;
+  /** tool-calling 协议:native=原生 function-calling;pseudo=中转不支持时的伪协议降级(§11.1.1)。默认 native */
+  toolProtocol?: 'native' | 'pseudo';
   /** tool-calling 单 turn 最大工具轮次(默认 6) */
   maxToolSteps?: number;
   /** 评分员(建议异构模型);配了才启用对抗 loop */
@@ -38,7 +40,11 @@ export interface GenerateDeps {
     enabled: boolean;
     /** 每险种最大重写次数(默认 2) */
     maxRevisions?: number;
-    /** 单 proposal 全局 LLM 调用预算硬顶(generate+judge 累计;默认无限) */
+    /**
+     * 单 proposal 调用预算上限:约束**每险种必发的首次生成之上**的评审/重写调用(judge + revise)。
+     * 首次生成每险种至少 1 次(不可省,否则无内容),故 callBudget 不封"1×险种数"这个地板,只封其上的评审/重写。
+     * 开 enableToolCalling 时,一次 compose 最坏 = maxToolSteps+1 次调用,预算按最坏预扣以保持硬顶不被突破。
+     */
     callBudget?: number;
     /**
      * 忠实度 not-supported 是否允许破坏性删条款(默认 false = 只标⚠待核不删)。
@@ -99,11 +105,16 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     const invoke = deps.enableToolCalling
       ? createToolExecutor({ catalogs: deps.catalogs, ragStore: deps.ragStore, embedding: deps.embedding, audience: 'pipeline', lineScope: p.lineId })
       : null;
-    const generate = async (messages: ChatMessage[]): Promise<string> =>
-      invoke
-        ? (await runToolLoop(deps.chat, messages, PIPELINE_TOOL_DEFS, invoke, { maxSteps: deps.maxToolSteps ?? 6 })).content
-        : deps.chat.complete(messages);
-    const composeNarrative = async (revise?: ReviseContext): Promise<Narrative> => {
+    // generate 返回实际调用数(tool-calling 时可 >1);用于 callsUsed 的真实计数
+    const generate = async (messages: ChatMessage[]): Promise<{ content: string; calls: number }> => {
+      if (invoke) {
+        const runner = deps.toolProtocol === 'pseudo' ? runPseudoToolLoop : runToolLoop;
+        const r = await runner(deps.chat, messages, PIPELINE_TOOL_DEFS, invoke, { maxSteps: deps.maxToolSteps ?? 6 });
+        return { content: r.content, calls: r.steps };
+      }
+      return { content: await deps.chat.complete(messages), calls: 1 };
+    };
+    const composeNarrative = async (revise?: ReviseContext): Promise<{ narrative: Narrative; calls: number }> => {
       const messages = buildItemMessages({
         lineName,
         gapTitles: p.gapTitles,
@@ -114,18 +125,22 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
         revise,
       });
       try {
-        const parsed = parseLlmJson(await generate(messages));
+        const g = await generate(messages);
+        const parsed = parseLlmJson(g.content);
         if (parsed) {
           return {
-            coverageDirection: asStr(parsed.coverageDirection),
-            rationale: asStr(parsed.rationale),
-            keyClauses: parseKeyClauses(parsed.keyClauses, evidenceIds),
+            narrative: {
+              coverageDirection: asStr(parsed.coverageDirection),
+              rationale: asStr(parsed.rationale),
+              keyClauses: parseKeyClauses(parsed.keyClauses, evidenceIds),
+            },
+            calls: g.calls,
           };
         }
+        return { narrative: { coverageDirection: '', rationale: '', keyClauses: [] }, calls: g.calls };
       } catch {
-        /* 降级为占位 */
+        return { narrative: { coverageDirection: '', rationale: '', keyClauses: [] }, calls: 1 };
       }
-      return { coverageDirection: '', rationale: '', keyClauses: [] };
     };
 
     // 3) 对抗 loop:generate → 确定性三维 + judge 两软维 → 汇总 ScoreCard → 字段锁重写 → 取最优版。
@@ -149,10 +164,14 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       return { card, clauses };
     };
 
-    budget.used++; // 首次生成(至少 1 次,不可省)
-    let callsUsed = 1;
-    let composed = await composeNarrative();
+    // 一次 compose 的调用成本:tool-calling 时按最坏(maxToolSteps+1)预扣,保证 callBudget 硬顶不被突破
+    const composeCost = deps.enableToolCalling ? (deps.maxToolSteps ?? 6) + 1 : 1;
+    budget.used += composeCost; // 首次生成(至少 1 次,不可省)
+    const first = await composeNarrative();
+    let composed = first.narrative;
+    let callsUsed = first.calls;
     let scoreCards: ScoreCard[] | undefined;
+    let adoptedScoreCardIndex: number | undefined;
     let qualityScore: number | undefined;
     let revisions = 0;
     let degraded = false;
@@ -163,11 +182,18 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       const cards: ScoreCard[] = [];
       let card: ScoreCard | undefined;
       let best: { composed: Narrative; card: ScoreCard } | undefined;
+      // 取最优版:无 gate 命中者优先(gate 命中最终必被隐去,绝不能选它,即便 weightedScore 更高——
+      // compliance 权重为 0,weightedScore 与"可接受性"不单调),再比 weightedScore。
+      const betterThan = (cand: ScoreCard, cur: ScoreCard): boolean => {
+        const cok = cand.gateFailed.length === 0;
+        const uok = cur.gateFailed.length === 0;
+        return cok !== uok ? cok : cand.weightedScore > cur.weightedScore;
+      };
 
       // 首评(额度不足则跳过,退回单次生成)
-      if (budget.used < budget.max) {
-        budget.used++;
-        callsUsed++;
+      if (budget.used + 1 <= budget.max) {
+        budget.used += 1;
+        callsUsed += 1;
         const r = await scoreDraft(composed);
         composed = { ...composed, keyClauses: r.clauses };
         card = r.card;
@@ -175,25 +201,26 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
         best = { composed, card };
       }
 
-      while (card && card.verdict === 'fail' && revisions < maxRev && budget.used + 2 <= budget.max) {
-        budget.used += 2; // 预扣整轮
-        callsUsed += 2;
+      while (card && card.verdict === 'fail' && revisions < maxRev && budget.used + composeCost + 1 <= budget.max) {
+        budget.used += composeCost + 1; // 预扣整轮(compose 最坏 + judge)
         const revised = await composeNarrative(buildReviseContext(composed, card));
-        const rr = await scoreDraft(revised, card.verdict);
+        callsUsed += revised.calls + 1;
+        const rr = await scoreDraft(revised.narrative, card.verdict);
         revisions++;
-        const revisedComposed: Narrative = { ...revised, keyClauses: rr.clauses };
+        const revisedComposed: Narrative = { ...revised.narrative, keyClauses: rr.clauses };
         cards.push(rr.card);
-        if (!best || rr.card.weightedScore > best.card.weightedScore) best = { composed: revisedComposed, card: rr.card };
+        if (!best || betterThan(rr.card, best.card)) best = { composed: revisedComposed, card: rr.card };
         card = rr.card;
         composed = revisedComposed;
         if (card.verdict === 'pass') break;
       }
 
-      // 取最优版(按 weightedScore;非破坏性:不因末轮变差而丢弃更优的早期版)
+      // 取最优版(非破坏性:不因末轮变差而丢弃更优的早期版)
       if (best) {
         composed = best.composed;
         card = best.card;
         qualityScore = best.card.weightedScore;
+        adoptedScoreCardIndex = cards.indexOf(best.card);
       }
       scoreCards = cards;
       if (!best || best.card.verdict === 'fail') {
@@ -250,13 +277,16 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
         insurer,
         source: 'product_db' as const,
         sourceFile: lineData?.sourceFile ?? '',
+        matchReason: `产品库${lineName}条线在售,承保「${p.gapTitles[0] ?? '相关责任'}」(结构化来源)`,
       })),
+      rationaleDrivers: buildRationaleDrivers(p.gapTitles, req.profile, composed.keyClauses),
       pricing,
       drilldownSourceFile: lineData?.sourceFile ?? null,
       citations,
       evidenceInsufficient: evidence.length === 0,
       qualityScore,
       scoreCards,
+      adoptedScoreCardIndex,
       revisions: loopOn ? revisions : undefined,
       callsUsed,
       degraded: degraded || undefined,
@@ -319,6 +349,22 @@ function parseLlmJson(s: string): Record<string, unknown> | null {
 
 function asStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+/** 推荐理由锚点(§7.4,确定性):缺口×画像×条款,供前端渲染可点 chip。 */
+function buildRationaleDrivers(gapTitles: string[], profile: ProposalRequest['profile'], clauses: KeyClause[]): RationaleDriver[] {
+  const out: RationaleDriver[] = [];
+  if (gapTitles[0]) out.push({ gap: gapTitles[0] });
+  const pf =
+    (profile.hasPatent && '有专利') ||
+    (profile.overseasCountries?.length && `出海 ${profile.overseasCountries.join('/')}`) ||
+    profile.industry ||
+    profile.headcount ||
+    '';
+  if (pf) out.push({ profile: pf });
+  const c0 = clauses.find((k) => k.text.trim());
+  if (c0) out.push({ clause: c0.text.slice(0, 24) });
+  return out;
 }
 
 /** 字段锁重写上下文(H4):回填上一版 + 锁定 pass 字段 + 仅改 fail 字段。 */

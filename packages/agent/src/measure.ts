@@ -43,9 +43,11 @@ export function summarizeProposals(proposals: Proposal[]): MeasureReport {
   let gateHit = 0;
 
   for (const it of loopItems) {
-    const last = it.scoreCards?.at(-1);
-    if (last?.verdict === 'pass') passed++;
-    if (last?.gateFailed.length) gateHit++;
+    // 采纳版≠末轮(取最优版),据 adoptedScoreCardIndex 定位真实指标,否则回退末轮
+    const cards = it.scoreCards ?? [];
+    const adopted = it.adoptedScoreCardIndex != null ? cards[it.adoptedScoreCardIndex] : cards.at(-1);
+    if (adopted?.verdict === 'pass') passed++;
+    if (adopted?.gateFailed.length) gateHit++;
     if (it.degraded) {
       degraded++;
       const reason = it.degradedReason?.split(/[,,;;(]/)[0]?.trim() || 'unknown';

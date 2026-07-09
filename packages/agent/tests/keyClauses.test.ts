@@ -109,6 +109,16 @@ describe('PR3 keyClauses 结构升级', () => {
     expect(p.items[0].callsUsed).toBe(1);
   });
 
+  it('gap:rationaleDrivers(缺口/画像/条款锚点)+ recommendedProducts.matchReason 已产出', async () => {
+    const chat = fixedChat([{ text: '承保工伤赔偿', evidence: ['E1'], clauseType: '责任' }]);
+    const p = await generateProposal(req, await deps(chat));
+    const it = p.items[0];
+    expect(it.rationaleDrivers?.some((d) => d.gap === '雇主责任险未覆盖')).toBe(true);
+    expect(it.rationaleDrivers?.some((d) => d.profile === 'SaaS')).toBe(true);
+    expect(it.rationaleDrivers?.some((d) => d.clause === '承保工伤赔偿')).toBe(true);
+    if (it.recommendedProducts.length) expect(it.recommendedProducts[0].matchReason).toContain('产品库');
+  });
+
   it('callsUsed:loop 开、重写 1 次 → generate+judge 累计 4 次', async () => {
     const chat = new StubChatProvider() as ChatProvider;
     const p = await generateProposal(req, await deps(chat, [softFail(), softPass()]));
