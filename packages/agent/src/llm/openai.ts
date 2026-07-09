@@ -1,6 +1,6 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import type { ChatCompleteOptions, ChatMessage, ChatProvider } from './types';
+import type { AssistantTurn, ChatCompleteOptions, ChatMessage, ChatProvider, ToolCall } from './types';
 
 export interface OpenAIChatConfig {
   apiKey: string;
@@ -11,13 +11,18 @@ export interface OpenAIChatConfig {
 }
 
 interface ChatResponse {
-  choices: Array<{ message?: { content?: string } }>;
+  choices?: Array<{
+    message?: { content?: string | null; tool_calls?: ToolCall[] };
+    finish_reason?: string;
+  }>;
 }
 
 /**
  * OpenAI 兼容对话补全(Bearer + /chat/completions)。用 Node 内置 http/https(非全局 fetch/undici)——
  * 避免"http 服务 + undici 出站请求"并发时的原生崩溃。不用 response_format(部分中转不支持),
  * 靠提示词约束 JSON,由管道侧宽松解析。key 只在后端读入。
+ *
+ * complete = 纯文本;completeWithTools = 结构化回合(含 tool_calls),供 tool-calling 循环。
  */
 export class OpenAIChatProvider implements ChatProvider {
   readonly id = 'openai';
@@ -37,7 +42,22 @@ export class OpenAIChatProvider implements ChatProvider {
   }
 
   async complete(messages: ChatMessage[], opts: ChatCompleteOptions = {}): Promise<string> {
-    const body = JSON.stringify({ model: this.model, messages, temperature: opts.temperature ?? 0.2 });
+    return (await this.rawComplete(messages, opts)).content;
+  }
+
+  async completeWithTools(messages: ChatMessage[], opts: ChatCompleteOptions = {}): Promise<AssistantTurn> {
+    return this.rawComplete(messages, opts);
+  }
+
+  private async rawComplete(messages: ChatMessage[], opts: ChatCompleteOptions): Promise<AssistantTurn> {
+    const body = JSON.stringify({
+      model: this.model,
+      messages,
+      temperature: opts.temperature ?? 0.2,
+      ...(opts.tools?.length ? { tools: opts.tools } : {}),
+      ...(opts.toolChoice ? { tool_choice: opts.toolChoice } : {}),
+    });
+
     let lastErr: unknown;
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
@@ -59,7 +79,12 @@ export class OpenAIChatProvider implements ChatProvider {
           );
         }
         const json = JSON.parse(res.body) as ChatResponse;
-        return json.choices?.[0]?.message?.content ?? '';
+        const choice = json.choices?.[0];
+        return {
+          content: choice?.message?.content ?? '',
+          toolCalls: choice?.message?.tool_calls ?? [],
+          finishReason: choice?.finish_reason ?? 'stop',
+        };
       } catch (err) {
         lastErr = err;
         if (err instanceof NonRetryableError) throw err;
