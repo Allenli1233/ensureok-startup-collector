@@ -2,7 +2,14 @@ import type { ChatProvider } from './types';
 import { OpenAIChatProvider } from './openai';
 import { StubChatProvider } from './stub';
 
-export type { ChatProvider, ChatMessage, ChatCompleteOptions } from './types';
+export type {
+  ChatProvider,
+  ChatMessage,
+  ChatCompleteOptions,
+  ToolDef,
+  ToolCall,
+  AssistantTurn,
+} from './types';
 export { OpenAIChatProvider, type OpenAIChatConfig } from './openai';
 export { StubChatProvider } from './stub';
 
