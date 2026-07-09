@@ -1,6 +1,10 @@
 import { createServer as httpCreateServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { generateProposal, type GenerateDeps, type ProposalRequest } from '@ensureok/agent';
+import { answerQuestion, generateProposal, type GenerateDeps, type ProposalRequest, type QaScope } from '@ensureok/agent';
+import { retrieve } from '@ensureok/rag';
 import { JobStore } from './jobStore';
+
+/** 单份报告 chat 提问软上限(防滥用/烧 key) */
+const CHAT_CAP = 20;
 
 /** 生成依赖(不含 generatedAt;每个任务生成时注入)+ 可注入的时钟(便于测试) */
 export interface ServerDeps extends Omit<GenerateDeps, 'generatedAt'> {
@@ -54,6 +58,41 @@ async function handle(
           jobs.update(job.taskId, { status: 'error', error: { code: 'generation_failed', message: String(e).slice(0, 300) } }),
         );
       return;
+    }
+
+    // 报告解读 chat(同步):POST /agent/proposals/:id/chat  body {scope:'report'|<lineId>, question}
+    const chatM = /^\/agent\/proposals\/([\w-]+)\/chat$/.exec(url);
+    if (method === 'POST' && chatM) {
+      const job = jobs.get(chatM[1]);
+      if (!job || job.status !== 'ready' || !job.proposal) {
+        return json(res, 404, { error: { code: 'not_ready', message: '报告不存在或未就绪(可能已过期,请重新生成)' } });
+      }
+      const body = (await readJson(req)) as { scope?: string; question?: string } | null;
+      const question = String(body?.question ?? '').trim();
+      const scopeRaw = String(body?.scope ?? 'report');
+      if (!question) return json(res, 400, { error: { code: 'invalid_input', message: '缺 question' } });
+      if ((job.chatCount ?? 0) >= CHAT_CAP) {
+        return json(res, 200, { answer: '本次报告咨询已达上限,如需深入建议由持牌经纪评估。', refused: true, disclaimer: '' });
+      }
+      jobs.update(job.taskId, { chatCount: (job.chatCount ?? 0) + 1 });
+
+      let scope: QaScope;
+      if (scopeRaw === 'report') {
+        scope = { kind: 'report', proposal: job.proposal };
+      } else {
+        const item = job.proposal.items.find((i) => i.lineId === scopeRaw);
+        if (!item) return json(res, 400, { error: { code: 'bad_scope', message: '未知险种' } });
+        let evidence: Array<{ text: string; sourceFile: string }> = [];
+        try {
+          const chunks = await retrieve(deps.ragStore, deps.embedding, `${item.lineName} ${question}`, { insuranceLines: [item.lineName], topK: 4 });
+          evidence = chunks.map((c) => ({ text: c.text, sourceFile: c.meta.sourceFile }));
+        } catch {
+          /* 无证据也能基于报告内容答 */
+        }
+        scope = { kind: 'line', proposal: job.proposal, lineId: scopeRaw, evidence };
+      }
+      const result = await answerQuestion(deps.chat, question, scope);
+      return json(res, 200, result);
     }
 
     const m = /^\/agent\/proposals\/([\w-]+)$/.exec(url);

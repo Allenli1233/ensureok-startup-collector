@@ -122,6 +122,39 @@ describe('agent server', () => {
     expect(r.status).toBe(404);
   });
 
+  it('报告 chat:ready 后 POST /chat → 200 + answer', async () => {
+    server = createServer(await makeDeps());
+    const port = await listen(server);
+    const create = await fetch(`http://127.0.0.1:${port}/agent/proposals`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req),
+    });
+    const { taskId } = (await create.json()) as { taskId: string };
+    let status = '';
+    for (let i = 0; i < 60; i++) {
+      const r = await fetch(`http://127.0.0.1:${port}/agent/proposals/${taskId}`);
+      status = ((await r.json()) as { status: string }).status;
+      if (status === 'ready' || status === 'error') break;
+      await sleep(25);
+    }
+    expect(status).toBe('ready');
+    const chat = await fetch(`http://127.0.0.1:${port}/agent/proposals/${taskId}/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'report', question: '这份报告讲了什么?' }),
+    });
+    expect(chat.status).toBe(200);
+    const ans = (await chat.json()) as { answer: string; refused: boolean };
+    expect(typeof ans.answer).toBe('string');
+    expect(ans.answer.length).toBeGreaterThan(0);
+  });
+
+  it('报告 chat:未知任务 → 404', async () => {
+    server = createServer(await makeDeps());
+    const port = await listen(server);
+    const r = await fetch(`http://127.0.0.1:${port}/agent/proposals/nope/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'report', question: 'x' }),
+    });
+    expect(r.status).toBe(404);
+  });
+
   it('无效 body → 400', async () => {
     server = createServer(await makeDeps());
     const port = await listen(server);

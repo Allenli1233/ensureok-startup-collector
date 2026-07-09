@@ -9,6 +9,8 @@ export interface Job {
   proposal?: Proposal;
   /** 分阶段进度(PR5b);前端轮询消费,无则退回转圈 */
   progress?: ProgressSnapshot;
+  /** 报告 chat 已提问数(每任务软上限防滥用) */
+  chatCount?: number;
   error?: { code: string; message: string };
   createdAt: string;
 }
