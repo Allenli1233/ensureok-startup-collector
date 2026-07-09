@@ -17,7 +17,8 @@ const KNOWN_INSURERS = [
 const NAME_IS_INSURER = /(?:保险|财险|人寿|产险|人保|养老|再保)$/;
 /** 保司引用信号:名字后紧邻保险类后缀,或前面有"推荐/承保/由…"等引荐动词 */
 const INSURER_SUFFIX = '(?:保险|财险|人寿|产险|养老|再保|保司|保险公司|集团)';
-const REC_VERB = '(?:推荐|选择|承保|投保|由|选用|采用|使用|优先)';
+// 引荐动词:只用强推荐词;剔除 承保/投保/由/使用 等域内常用词(否则"承保大地震"会把"大地"误判为保司)
+const REC_VERB = '(?:推荐|选择|选用|优先|采用)';
 /**
  * 判断某保司名在文本里是否为"保司引用"(而非普通词)。
  * 规避 平安/阳光/大地/太平洋/国寿 等常用词误判(bug):裸子串不算,需后缀相邻或引荐动词在前。
@@ -108,9 +109,11 @@ export function applyFaithfulness(
 
     if (clause.clauseType === '除外' || clause.clauseType === '责任') {
       const headings = evidenceRefs.flatMap((id) => headingByChunk.get(id) ?? []).join(' ');
-      // 除外优先判定:'承保' 是 '不承保' 的子串,若不先剔除除外,责任类会被误判为命中(bug false-negative)
+      // 先剔除除外类词再判责任:'承保' 是 '不承保' 的子串,直接判会漏判(FN);但除外与责任**同现**时
+      // 责任仍应独立成立(否则误伤 FP)。故 hitExcl 用原文,hitLiab 用"抠掉除外词后的余文"独立判定。
       const hitExcl = EXCLUSION_HEADINGS.some((h) => headings.includes(h));
-      const hitLiab = !hitExcl && LIABILITY_HEADINGS.some((h) => headings.includes(h));
+      const headingsNoExcl = EXCLUSION_HEADINGS.reduce((s, h) => s.split(h).join(' '), headings);
+      const hitLiab = LIABILITY_HEADINGS.some((h) => headingsNoExcl.includes(h));
       const wantHit = clause.clauseType === '除外' ? hitExcl : hitLiab;
       const otherHit = clause.clauseType === '除外' ? hitLiab : hitExcl;
       if (evidenceRefs.length && otherHit && !wantHit) {

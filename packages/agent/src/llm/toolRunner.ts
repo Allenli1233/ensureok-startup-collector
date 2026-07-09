@@ -51,9 +51,9 @@ export async function runToolLoop(
     }
   }
 
-  // 达 maxSteps → 强制不带 tools 收口一次(禁止再调工具)
+  // 达 maxSteps → 强制不带 tools 收口一次(禁止再调工具)。收口也是一次真实调用,故 steps=maxSteps+1
   const final = await chat.completeWithTools(convo, { temperature: opts.temperature, toolChoice: 'none' });
-  return { content: final.content, steps: maxSteps, trace };
+  return { content: final.content, steps: maxSteps + 1, trace };
 }
 
 /**
@@ -66,7 +66,9 @@ export function parsePseudoToolCalls(content: string): { calls: ToolCall[]; pars
   let parseError = false;
   let m: RegExpExecArray | null;
   let i = 0;
+  let matched = 0;
   while ((m = re.exec(content))) {
+    matched++;
     try {
       const o = JSON.parse(m[1]) as { name?: unknown; args?: unknown };
       if (o && typeof o.name === 'string') {
@@ -78,6 +80,8 @@ export function parsePseudoToolCalls(content: string): { calls: ToolCall[]; pars
       parseError = true;
     }
   }
+  // 悬空 opener:<<TOOL>> 出现次数 > 完整闭合块数(截断/未闭合/被内嵌 <<END>> 截断)→ 显式打标,不静默(§11.1.1)
+  if ((content.match(/<<TOOL>>/g) ?? []).length > matched) parseError = true;
   return { calls, parseError };
 }
 
@@ -122,5 +126,5 @@ export async function runPseudoToolLoop(
     }
   }
   const final = await chat.complete(convo, { temperature: opts.temperature });
-  return { content: final, steps: maxSteps, trace, parseError: anyParseError };
+  return { content: final, steps: maxSteps + 1, trace, parseError: anyParseError };
 }

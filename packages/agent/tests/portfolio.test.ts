@@ -78,6 +78,11 @@ describe('PR5 runToolLoop', () => {
     const bad = parsePseudoToolCalls('<<TOOL>>{坏 json}<<END>>');
     expect(bad.calls).toHaveLength(0);
     expect(bad.parseError).toBe(true); // 不静默
+    // 悬空/截断 opener(无闭合 <<END>>)→ 也必须打标,不能静默当作"无工具"收敛(复审回归)
+    const dangling = parsePseudoToolCalls('<<TOOL>>{"name":"check_compliance","args":{}}');
+    expect(dangling.calls).toHaveLength(0);
+    expect(dangling.parseError).toBe(true);
+    expect(parsePseudoToolCalls('普通作答,无工具块。').parseError).toBe(false);
     expect(parsePseudoToolCalls('普通作答,无工具块。').calls).toHaveLength(0);
   });
 
