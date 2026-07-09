@@ -17,6 +17,7 @@
     "catalog:build": "npm run -w @ensureok/catalog build",
     "catalog:typecheck": "npm run -w @ensureok/catalog typecheck",
     "rag:ingest": "npm run -w @ensureok/rag ingest",
+    "rag:query": "npm run -w @ensureok/rag query --",
     "rag:test": "npm run -w @ensureok/rag test",
     "rag:typecheck": "npm run -w @ensureok/rag typecheck"
   },
