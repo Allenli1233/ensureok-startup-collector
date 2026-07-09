@@ -42,6 +42,15 @@ describe('scoreDeterministic 确定性三维', () => {
     const d = scoreDeterministic('推荐中国人保与平安的产品。', ['中国人保', '平安']);
     expect(d.accuracy.verdict).toBe('pass');
   });
+  it('常用词误判修复:平安/阳光/大地等普通措辞不触发 accuracy(bug)', () => {
+    expect(scoreDeterministic('为企业平安发展保驾护航。', ['中国人保']).accuracy.verdict).toBe('pass');
+    expect(scoreDeterministic('打造阳光透明的团队文化。', ['中国人保']).accuracy.verdict).toBe('pass');
+    expect(scoreDeterministic('脚踏大地稳健经营,放眼太平洋两岸。', ['中国人保']).accuracy.verdict).toBe('pass');
+  });
+  it('白名单外保司(带后缀/引荐)仍判 fail', () => {
+    expect(scoreDeterministic('推荐太保的产品最合适。', ['中国人保', '平安']).accuracy.verdict).toBe('fail');
+    expect(scoreDeterministic('阳光保险的方案更优。', ['中国人保']).accuracy.verdict).toBe('fail');
+  });
 });
 
 describe('buildScoreCard weightedScore', () => {
@@ -85,6 +94,11 @@ describe('applyFaithfulness(H1 heading 比对 + M3 rebind + 非破坏性)', () =
 
   it('H1:除外条款却引到"保险责任"heading → 强判 not-supported → unverified', () => {
     const r = applyFaithfulness([clause('某除外', ['c0'], '除外')], [], new Map([['c0', ['二、保险责任']]]), false);
+    expect(r.clauses[0].faithfulness).toBe('unverified');
+  });
+
+  it('H1 修复:责任条款却只引到"不承保"heading → 不被"承保"子串漏判(bug)', () => {
+    const r = applyFaithfulness([clause('某责任', ['c0'], '责任')], [], new Map([['c0', ['三、不承保范围']]]), false);
     expect(r.clauses[0].faithfulness).toBe('unverified');
   });
 
