@@ -21,10 +21,21 @@
   .no-print {
     display: none !important;
   }
+  /* 中和滚动祖先(html/body/#root 及采集器容器的 height:100%/overflow:auto)——
+     否则方案被困在定高滚动盒里,超一页会被裁切、且丢失自然分页 */
+  html,
+  body,
+  #root,
+  .app-scroll-root {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  /* 内联 styles.root(width:100%/marginTop)优先级高于类,需 !important 才能覆盖 */
   .proposal-print {
-    margin: 0;
+    margin: 0 !important;
     padding: 0 8mm;
-    width: auto;
+    width: auto !important;
   }
   /* 打印时下钻全展开(附录式) */
   .drilldown {

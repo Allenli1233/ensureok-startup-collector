@@ -80,7 +80,9 @@ export function StartupProfileCollector() {
   // 调参重生成:上一版险种名(用于生成后对比新增/移除)
   const [prevLineNames, setPrevLineNames] = useState<string[] | undefined>(undefined);
 
-  // 调整画像重新生成 —— 复用既有全量重生成路径(buildProposalRequest + proposal.start)
+  // 调整画像重新生成 —— 复用既有全量重生成路径(buildProposalRequest + proposal.start)。
+  // 注:status 转 loading 会卸载 ProposalView,其本地视图态(卡片/对比表、客户/顾问版、展开、筛选)刻意重置为默认——
+  // 重生成即"全新一版",不保留上一版的浏览态;若日后要保留,把这些 state 提升到父层。
   const handleRegenerate = (profile: ProposalRequest['profile']) => {
     const base = buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis });
     if (proposal.proposal) setPrevLineNames(proposal.proposal.items.map((i) => i.lineName));
@@ -224,7 +226,7 @@ export function StartupProfileCollector() {
   ).map((key) => ({ key, questions: visible.filter((q) => q.section === key) }));
 
   return (
-    <div style={styles.container}>
+    <div className="app-scroll-root" style={styles.container}>
       {/* ── 品牌行(复用 /qiye 观感) ── */}
       <div className="no-print" style={styles.header}>
         <div style={styles.brandRow}>

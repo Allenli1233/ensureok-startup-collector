@@ -51,6 +51,10 @@ describe('scoreDeterministic 确定性三维', () => {
     expect(scoreDeterministic('推荐太保的产品最合适。', ['中国人保', '平安']).accuracy.verdict).toBe('fail');
     expect(scoreDeterministic('阳光保险的方案更优。', ['中国人保']).accuracy.verdict).toBe('fail');
   });
+  it('复审回归:"承保"不再把域内普通词判为保司', () => {
+    expect(scoreDeterministic('本保险承保大地震、洪水等自然灾害所致损失。', ['中国人保']).accuracy.verdict).toBe('pass');
+    expect(scoreDeterministic('承保区域为平安县及周边。', ['中国人保']).accuracy.verdict).toBe('pass');
+  });
 });
 
 describe('buildScoreCard weightedScore', () => {
@@ -100,6 +104,12 @@ describe('applyFaithfulness(H1 heading 比对 + M3 rebind + 非破坏性)', () =
   it('H1 修复:责任条款却只引到"不承保"heading → 不被"承保"子串漏判(bug)', () => {
     const r = applyFaithfulness([clause('某责任', ['c0'], '责任')], [], new Map([['c0', ['三、不承保范围']]]), false);
     expect(r.clauses[0].faithfulness).toBe('unverified');
+  });
+
+  it('复审回归:责任条款同现"保险责任+责任免除"两标题 → 不误判(仍 entailed)', () => {
+    const hb = new Map<string, string[]>([['c0', ['一、保险责任']], ['c1', ['二、责任免除']]]);
+    const r = applyFaithfulness([clause('某责任', ['c0', 'c1'], '责任')], [], hb, false);
+    expect(r.clauses[0].faithfulness).toBe('entailed');
   });
 
   it('fidelityDestructive:not-supported 保留 not-supported 态(删除进人工队列,不即时删)', () => {

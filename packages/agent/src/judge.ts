@@ -124,18 +124,16 @@ function parseJson(s: string): Record<string, unknown> | null {
 const VALID_STATUS = new Set(['entailed', 'not-supported', 'contradicted']);
 function parseClaims(v: unknown): ClaimJudgement[] {
   if (!Array.isArray(v)) return [];
-  const out: ClaimJudgement[] = [];
-  v.forEach((c, pos) => {
-    if (!c || typeof c !== 'object') return;
-    const o = c as Record<string, unknown>;
-    const idx = Number(o.index);
-    // 键漂移(idx/序号 而非 index)→ 用数组位置兜底,避免整条 claim 被丢弃后忠实度悄悄默认 entailed(fail-unsafe)
-    const index = Number.isInteger(idx) ? idx : pos;
+  const objs = v.filter((c): c is Record<string, unknown> => !!c && typeof c === 'object');
+  // 只要有一条缺合法整数 index(键漂移 idx/序号),就**全部**改用数组位置(一致 0..n-1),
+  // 避免"部分用模型 index、部分用位置"的碰撞把 not-supported 冲成 entailed(fail-unsafe)。
+  const allHaveIndex = objs.every((o) => Number.isInteger(Number(o.index)));
+  return objs.map((o, pos) => {
+    const index = allHaveIndex ? Number(o.index) : pos;
     const status = VALID_STATUS.has(asStr(o.status)) ? (asStr(o.status) as ClaimJudgement['status']) : 'not-supported';
     const rebindTo = typeof o.rebindTo === 'string' && o.rebindTo ? o.rebindTo : null;
-    out.push({ index, status, rebindTo, note: asStr(o.note) });
+    return { index, status, rebindTo, note: asStr(o.note) };
   });
-  return out;
 }
 function parseRevisions(v: unknown): RevisionInstruction[] {
   if (!Array.isArray(v)) return [];
