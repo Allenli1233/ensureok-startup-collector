@@ -38,4 +38,23 @@
   .proposal-item {
     break-inside: avoid;
   }
+  /* 打印时价格表展开可见:去掉横向滚动、整表尽量不跨页割裂 */
+  .price-table-scroll {
+    overflow-x: visible !important;
+  }
+  .price-table-block {
+    break-inside: avoid;
+  }
+  .price-table {
+    break-inside: avoid;
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 10px !important;
+    table-layout: fixed;
+  }
+  .price-table th,
+  .price-table td {
+    white-space: normal !important;
+    word-break: break-word;
+  }
 }

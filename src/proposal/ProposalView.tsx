@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import './print.css';
 import type { Proposal, ProposalItem, ProposalTier } from './types';
+import { getPriceTables, getInsurers } from './catalogData';
 
 const TIER_LABEL: Record<ProposalTier, string> = {
   tier1: '合同/合规强制型',
@@ -91,6 +92,7 @@ function ItemCard({ item, open, onToggle }: { item: ProposalItem; open: boolean;
           {item.recommendedProducts.map((r) => r.insurer).join('、') || '—'}
           {item.drilldownSourceFile ? ` · 完整价格表见 ${item.drilldownSourceFile}` : ''}
         </p>
+        <PriceTables lineId={item.lineId} />
         {item.citations.length > 0 && (
           <div style={styles.dP}>
             <strong>条款依据来源:</strong>
@@ -108,6 +110,57 @@ function ItemCard({ item, open, onToggle }: { item: ProposalItem; open: boolean;
           <p style={{ ...styles.dP, color: '#b54708' }}>该险种检索证据不足,建议由持牌顾问补充评估。</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function PriceTables({ lineId }: { lineId: string }): React.ReactElement {
+  const tables = getPriceTables(lineId);
+  const insurers = getInsurers(lineId);
+
+  return (
+    <div style={styles.priceSection}>
+      <strong style={styles.priceSectionTitle}>完整价格表</strong>
+      {insurers.length > 0 && (
+        <p style={styles.priceInsurers}>
+          该险种保司:{insurers.join('、')}
+        </p>
+      )}
+      {tables.length === 0 ? (
+        <p style={styles.priceEmpty}>该险种暂无公开价目表,待持牌经纪报价。</p>
+      ) : (
+        tables.map((t, ti) => (
+          <div key={ti} className="price-table-block" style={styles.priceTableBlock}>
+            {t.contextPath.length > 0 && (
+              <div style={styles.priceTableCaption}>{t.contextPath.join(' › ')}</div>
+            )}
+            <div className="price-table-scroll" style={styles.priceTableScroll}>
+              <table className="price-table" style={styles.table}>
+                <thead>
+                  <tr>
+                    {t.columns.map((col, ci) => (
+                      <th key={ci} style={styles.th}>
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {t.rows.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} style={styles.td}>
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -157,6 +210,41 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dP: { fontSize: 13, lineHeight: 1.7, color: 'var(--fg2, #445)', margin: '6px 0' },
   ul: { margin: '4px 0 0', paddingLeft: 18 },
+  priceSection: { margin: '10px 0 4px' },
+  priceSectionTitle: { fontSize: 13, fontWeight: 800, color: 'var(--ink-900, #1a1a2e)' },
+  priceInsurers: { fontSize: 12.5, lineHeight: 1.7, color: 'var(--fg2, #445)', margin: '4px 0 8px' },
+  priceEmpty: { fontSize: 12.5, lineHeight: 1.7, color: 'var(--fg3, #889)', margin: '4px 0' },
+  priceTableBlock: { margin: '8px 0' },
+  priceTableCaption: { fontSize: 12, fontWeight: 700, color: 'var(--ink-700, #333)', margin: '0 0 4px' },
+  priceTableScroll: {
+    overflowX: 'auto',
+    maxWidth: '100%',
+    WebkitOverflowScrolling: 'touch',
+    border: '1px solid var(--sand-300, #e7e2d6)',
+    borderRadius: 8,
+  },
+  table: {
+    borderCollapse: 'collapse',
+    width: '100%',
+    minWidth: 'max-content',
+    fontSize: 12,
+    background: 'var(--surface, #fff)',
+  },
+  th: {
+    padding: '6px 10px',
+    textAlign: 'left',
+    fontWeight: 700,
+    color: 'var(--ink-900, #1a1a2e)',
+    background: 'var(--surface-soft, #faf9f6)',
+    borderBottom: '1px solid var(--sand-300, #e7e2d6)',
+    whiteSpace: 'nowrap',
+  },
+  td: {
+    padding: '6px 10px',
+    color: 'var(--fg2, #445)',
+    borderBottom: '1px solid var(--border, #eee)',
+    verticalAlign: 'top',
+  },
   disclaimer: {
     fontSize: 11.5,
     lineHeight: 1.7,
