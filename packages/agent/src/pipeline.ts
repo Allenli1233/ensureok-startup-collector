@@ -3,7 +3,7 @@ import { retrieve, type EmbeddingProvider, type JsonVectorStore, type RetrievedC
 import { extractLineData } from './catalogData';
 import type { Judge, JudgeInput } from './judge';
 import type { ChatMessage, ChatProvider } from './llm/types';
-import { runToolLoop } from './llm/toolRunner';
+import { runPseudoToolLoop, runToolLoop } from './llm/toolRunner';
 import { planLines } from './lineMapping';
 import { portfolioReview } from './portfolio';
 import { buildPricing, pricingFromComputed } from './pricing';
@@ -29,6 +29,8 @@ export interface GenerateDeps {
   concurrency?: number;
   /** 开启 pipeline 内 tool-calling 循环(LLM 按需回查工具);默认关(用预检索单次生成)。中转不支持则自动收敛回退。 */
   enableToolCalling?: boolean;
+  /** tool-calling 协议:native=原生 function-calling;pseudo=中转不支持时的伪协议降级(§11.1.1)。默认 native */
+  toolProtocol?: 'native' | 'pseudo';
   /** tool-calling 单 turn 最大工具轮次(默认 6) */
   maxToolSteps?: number;
   /** 评分员(建议异构模型);配了才启用对抗 loop */
@@ -106,7 +108,8 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     // generate 返回实际调用数(tool-calling 时可 >1);用于 callsUsed 的真实计数
     const generate = async (messages: ChatMessage[]): Promise<{ content: string; calls: number }> => {
       if (invoke) {
-        const r = await runToolLoop(deps.chat, messages, PIPELINE_TOOL_DEFS, invoke, { maxSteps: deps.maxToolSteps ?? 6 });
+        const runner = deps.toolProtocol === 'pseudo' ? runPseudoToolLoop : runToolLoop;
+        const r = await runner(deps.chat, messages, PIPELINE_TOOL_DEFS, invoke, { maxSteps: deps.maxToolSteps ?? 6 });
         return { content: r.content, calls: r.steps };
       }
       return { content: await deps.chat.complete(messages), calls: 1 };

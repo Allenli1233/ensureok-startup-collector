@@ -1,5 +1,5 @@
 import type { ToolInvoker } from '../tools/executor';
-import type { ChatMessage, ChatProvider, ToolDef } from './types';
+import type { ChatMessage, ChatProvider, ToolCall, ToolDef } from './types';
 
 export interface ToolTrace {
   tool: string;
@@ -54,4 +54,73 @@ export async function runToolLoop(
   // 达 maxSteps → 强制不带 tools 收口一次(禁止再调工具)
   const final = await chat.completeWithTools(convo, { temperature: opts.temperature, toolChoice: 'none' });
   return { content: final.content, steps: maxSteps, trace };
+}
+
+/**
+ * 伪工具协议解析(§11.1.1 L1):逐块**非贪婪**提取 `<<TOOL>>{"name","args"}<<END>>`。
+ * 解析失败**显式打标 parseError,不静默吞**(否则退回短板 8)。供中转不支持原生 function-calling 时降级。
+ */
+export function parsePseudoToolCalls(content: string): { calls: ToolCall[]; parseError: boolean } {
+  const re = /<<TOOL>>\s*([\s\S]*?)\s*<<END>>/g;
+  const calls: ToolCall[] = [];
+  let parseError = false;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(content))) {
+    try {
+      const o = JSON.parse(m[1]) as { name?: unknown; args?: unknown };
+      if (o && typeof o.name === 'string') {
+        calls.push({ id: `pseudo_${i++}`, type: 'function', function: { name: o.name, arguments: JSON.stringify(o.args ?? {}) } });
+      } else {
+        parseError = true;
+      }
+    } catch {
+      parseError = true;
+    }
+  }
+  return { calls, parseError };
+}
+
+/**
+ * 伪协议 tool-calling 循环:中转不支持原生 tools 时的降级路径。用 complete(纯文本)+ 伪块解析,
+ * 逐块执行、以 <<TOOL_RESULT>> 回填,达 maxSteps 收口。parseError 透出供上层打标(不静默)。
+ */
+export async function runPseudoToolLoop(
+  chat: ChatProvider,
+  messages: ChatMessage[],
+  tools: ToolDef[],
+  invoke: ToolInvoker,
+  opts: { maxSteps?: number; temperature?: number } = {},
+): Promise<ToolLoopResult & { parseError: boolean }> {
+  const maxSteps = opts.maxSteps ?? 6;
+  const toolDoc = tools.map((t) => `- ${t.function.name}: ${t.function.description}`).join('\n');
+  const convo: ChatMessage[] = [
+    ...messages,
+    {
+      role: 'system',
+      content: `如需调用工具,另起一行输出 <<TOOL>>{"name":"工具名","args":{...}}<<END>>(可多块,每块独立一行);不需要工具则正常作答。可用工具:\n${toolDoc}`,
+    },
+  ];
+  const trace: ToolTrace[] = [];
+  let anyParseError = false;
+
+  for (let steps = 1; steps <= maxSteps; steps++) {
+    const content = await chat.complete(convo, { temperature: opts.temperature });
+    const { calls, parseError } = parsePseudoToolCalls(content);
+    if (parseError) anyParseError = true;
+    if (!calls.length) return { content, steps, trace, parseError: anyParseError };
+    convo.push({ role: 'assistant', content });
+    const results = await Promise.all(
+      calls.map(async (c) => {
+        const r = await invoke(c.function.name, c.function.arguments);
+        trace.push({ tool: c.function.name, args: c.function.arguments, ok: r.ok });
+        return { c, r };
+      }),
+    );
+    for (const { c, r } of results) {
+      convo.push({ role: 'user', content: `<<TOOL_RESULT ${c.function.name}>>${r.ok ? JSON.stringify(r.data) : JSON.stringify({ error: r.error })}<<END>>` });
+    }
+  }
+  const final = await chat.complete(convo, { temperature: opts.temperature });
+  return { content: final, steps: maxSteps, trace, parseError: anyParseError };
 }
