@@ -52,6 +52,11 @@ function buildMessages(input: JudgeInput): ChatMessage[] {
   const clauses = input.clauses.length
     ? input.clauses.map((c) => `#${c.index} "${c.text}"  当前引用:[${c.evidenceRefs.join(', ') || '无'}]`).join('\n')
     : '(无条款)';
+  // 关键:把 JSON 结构 + 字段名 + 填好的示例**直接放进 user 消息**(不只依赖 system)。
+  // 否则中转把 system 弱化时,模型看不到 schema → 自造键名(如"评审类型"),fidelity/persuasion 全丢成 0。
+  const exampleClaims = input.clauses.length
+    ? input.clauses.map((c) => `{"index":${c.index},"status":"entailed","rebindTo":null,"note":""}`).join(',')
+    : '';
   const user = `险种:${input.lineName}
 【承保方向】${input.coverageDirection}
 【推荐理由】${input.rationale}
@@ -62,7 +67,9 @@ ${clauses}
 ${evidence}
 </证据>
 
-按 system 的 JSON 结构输出评审。只输出 JSON。`;
+只输出下面这个 JSON,**严格用这些英文字段名、不要改名、不要用中文键、不要代码围栏、不要多余文字**:
+{"fidelity":<0-5整数,条款忠实度>,"persuasion":<0-5整数,说服力>,"claims":[${exampleClaims}],"vagueSentences":[],"revisionInstructions":[]}
+说明:claims 每条 keyClause 一项(index 从 0 起);status 取 entailed/not-supported/contradicted;not-supported 时若<证据>里另有 chunk 支撑则填其 chunkId 到 rebindTo(改引不删),否则 rebindTo:null。`;
   return [
     { role: 'system', content: SYSTEM },
     { role: 'user', content: user },
@@ -78,12 +85,16 @@ function asStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 function parseJson(s: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(s) as Record<string, unknown>;
-  } catch {
-    /* try 提取 */
+  // judge 模型稳定用 ```json 围栏包裹 → 先去围栏再解析(比贪婪 {…} 更稳,避免抓到尾随散文的花括号)
+  const stripped = s.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+  for (const candidate of [stripped, s]) {
+    try {
+      return JSON.parse(candidate) as Record<string, unknown>;
+    } catch {
+      /* try 提取 */
+    }
   }
-  const m = s.match(/\{[\s\S]*\}/);
+  const m = stripped.match(/\{[\s\S]*\}/);
   if (m) {
     try {
       return JSON.parse(m[0]) as Record<string, unknown>;
