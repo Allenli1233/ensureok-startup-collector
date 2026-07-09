@@ -1,0 +1,23 @@
+{
+  "name": "@ensureok/rag",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "保险资料 RAG 语义检索库 —— 分块 + embedding(OpenAI/stub 可插拔) + 本地向量库 + 检索。RAG 负责『讲道理/条款依据』,价格只信 @ensureok/catalog。",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "ingest": "tsx scripts/ingest.ts",
+    "query": "tsx scripts/query.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.3.2",
+    "vitest": "^4.1.6"
+  }
+}

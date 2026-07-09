@@ -1,0 +1,29 @@
+{
+  "name": "@ensureok/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "方案生成 Agent 管道 —— 诊断结果 → 推荐险种 → catalog 出产品/价位 + rag 出条款依据 → LLM 生成风险保障方向说明。",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "tsx scripts/generate.ts",
+    "probe:tools": "tsx scripts/probe-tools.ts",
+    "probe:judge": "tsx scripts/probe-judge.ts",
+    "measure": "tsx scripts/measure.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensureok/catalog": "*",
+    "@ensureok/rag": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.3.2",
+    "vitest": "^4.1.6"
+  }
+}

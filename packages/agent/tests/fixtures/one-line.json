@@ -1,0 +1,18 @@
+{
+  "company": "示例科技",
+  "profile": { "industry": "SaaS / 软件", "headcount": "31-100 人" },
+  "diagnosis": {
+    "total": 1,
+    "mandatoryCount": 0,
+    "findings": [
+      {
+        "id": "er_gap",
+        "line": "line_a",
+        "title": "雇主责任险未覆盖",
+        "desc": "31-100 人规模用工阶段,工伤致残社保赔付之外的企业自担部分可达数十万。",
+        "coverage": "雇主责任险",
+        "urgency": "high"
+      }
+    ]
+  }
+}

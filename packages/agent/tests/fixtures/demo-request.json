@@ -1,0 +1,56 @@
+{
+  "company": "示例科技(上海)有限公司",
+  "profile": {
+    "industry": "SaaS / 软件",
+    "headcount": "31-100 人",
+    "funding": "Pre-A / A 轮",
+    "hasPatent": true,
+    "overseasCountries": ["美国", "新加坡"]
+  },
+  "diagnosis": {
+    "total": 5,
+    "mandatoryCount": 1,
+    "findings": [
+      {
+        "id": "er_gap",
+        "line": "line_a",
+        "title": "雇主责任险未覆盖",
+        "desc": "31-100 人规模用工阶段,一起工伤致残案件社保赔付之外的企业自担部分可达数十万。",
+        "coverage": "雇主责任险 + 团体福利保障",
+        "urgency": "high"
+      },
+      {
+        "id": "overseas_pkg",
+        "line": "line_b",
+        "title": "出海保障缺口(合同强制 · COI 待出具)",
+        "desc": "海外客户合同通常以保险证明(COI)作为供应商准入/交付前提;境外索赔金额远高于国内。",
+        "coverage": "出海保障包:职业责任(E&O)+ 网络安全 + 产品责任 + COI 出具服务",
+        "urgency": "mandatory"
+      },
+      {
+        "id": "dno_pre",
+        "line": "company",
+        "title": "关键人与董责风险(提前建立认知)",
+        "desc": "下一轮引入机构投资人时,关键人保障与 D&O 通常会进入投后要求清单。",
+        "coverage": "关键人保障 + 董责险(认知铺垫)",
+        "urgency": "advice"
+      },
+      {
+        "id": "ip_ins",
+        "line": "company",
+        "title": "知识产权保障未配置",
+        "desc": "已授权专利存在双向敞口:被侵权时的维权成本,与被诉侵权时的抗辩及赔偿成本。",
+        "coverage": "知识产权保险",
+        "urgency": "advice"
+      },
+      {
+        "id": "cyber_gap",
+        "line": "line_c",
+        "title": "数据安全敞口",
+        "desc": "处理用户敏感数据但尚未进入等保/个保合规流程,数据泄露的应急处置、第三方赔偿均无覆盖。",
+        "coverage": "网络安全保险(Cyber)+ 等保/个保合规规划",
+        "urgency": "high"
+      }
+    ]
+  }
+}

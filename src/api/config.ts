@@ -8,3 +8,11 @@
 export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
 export const apiUrl = (path: string): string => `${API_BASE}${path}`;
+
+/**
+ * Agent 后端(方案生成)基址。dev 留空 → 相对路径 /agent,由 vite proxy 转发到本地后端(见 vite.config);
+ * 生产可用 VITE_AGENT_BASE 指向独立部署的后端。
+ */
+export const AGENT_BASE: string = (import.meta.env.VITE_AGENT_BASE as string | undefined) ?? '';
+
+export const agentUrl = (path: string): string => `${AGENT_BASE}${path}`;

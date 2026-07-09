@@ -1,0 +1,25 @@
+[
+  {
+    "company": "甲SaaS",
+    "profile": { "industry": "SaaS / 软件", "headcount": "31-100 人", "hasPatent": true },
+    "diagnosis": { "total": 2, "mandatoryCount": 0, "findings": [
+      { "id": "er", "line": "line_a", "title": "雇主责任险未覆盖", "desc": "用工阶段工伤自担", "coverage": "雇主责任险", "urgency": "high" },
+      { "id": "cy", "line": "line_b", "title": "网络安全险缺口", "desc": "数据泄露责任", "coverage": "网络安全险", "urgency": "high" }
+    ] }
+  },
+  {
+    "company": "乙硬件",
+    "profile": { "industry": "智能硬件", "headcount": "101-300 人", "overseasCountries": ["美国", "欧盟"] },
+    "diagnosis": { "total": 2, "mandatoryCount": 1, "findings": [
+      { "id": "pl", "line": "line_a", "title": "产品责任险未覆盖", "desc": "出海产品缺陷责任", "coverage": "产品责任险", "urgency": "mandatory" },
+      { "id": "eo", "line": "line_b", "title": "科技E&O缺口", "desc": "专业服务过失", "coverage": "科技E&O", "urgency": "high" }
+    ] }
+  },
+  {
+    "company": "丙生物",
+    "profile": { "industry": "生物医药", "headcount": "11-30 人", "funding": "A轮" },
+    "diagnosis": { "total": 1, "mandatoryCount": 0, "findings": [
+      { "id": "do", "line": "company", "title": "董监高责任险缺口", "desc": "融资后治理风险", "coverage": "董监高责任险", "urgency": "advice" }
+    ] }
+  }
+]

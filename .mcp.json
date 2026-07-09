@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ensureok-insurance": {
+      "command": "npx",
+      "args": ["-y", "tsx", "packages/mcp/src/server.ts"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "OPENAI_BASE_URL": "${OPENAI_BASE_URL}",
+        "ENSUREOK_CATALOG_JSON": "packages/catalog/data/catalog.json",
+        "ENSUREOK_RAG_INDEX": "packages/rag/data/rag-index.json"
+      }
+    }
+  }
+}

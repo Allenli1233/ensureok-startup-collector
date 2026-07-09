@@ -22,6 +22,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LogoMark } from './LogoMark';
 import { apiUrl } from '../api/config';
 import { track } from '../api/tracker';
+import { useProposal } from '../proposal/useProposal';
+import { buildProposalRequest } from '../proposal/buildRequest';
+import { ProposalView } from '../proposal/ProposalView';
 import {
   OVERSEAS_COUNTRIES,
   COLLECTOR_PRIVACY_NOTICE,
@@ -70,6 +73,9 @@ export function StartupProfileCollector() {
   const previewFiredRef = useRef(false);
   const previewAnchorRef = useRef<HTMLDivElement | null>(null);
   const contactCardRef = useRef<HTMLDivElement | null>(null);
+
+  // 方案生成(提交成功后异步:后端 Agent 结合诊断+RAG+产品库生成一份风险保障方向说明)
+  const proposal = useProposal();
 
   useEffect(() => {
     track('startup_profile.page_view');
@@ -188,6 +194,10 @@ export function StartupProfileCollector() {
           contactType,
           mandatory: diagnosis.mandatoryCount,
         });
+        // 提交成功 → 触发方案生成(不含 PII,只发脱敏画像+诊断)
+        void proposal.start(
+          buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }),
+        );
       } else {
         setSubmitState('error');
         setErrorMsg(data?.error || '提交失败,请稍后再试。');
@@ -402,10 +412,38 @@ export function StartupProfileCollector() {
 
           <div style={styles.ctaSection}>
             {submitState === 'success' ? (
-              <div style={styles.successBox}>
-                <div style={styles.successTitle}>{COLLECTOR_SUCCESS_TITLE}</div>
-                <div style={styles.successSub}>{COLLECTOR_SUCCESS_SUB}</div>
-              </div>
+              <>
+                <div style={styles.successBox}>
+                  <div style={styles.successTitle}>{COLLECTOR_SUCCESS_TITLE}</div>
+                  <div style={styles.successSub}>{COLLECTOR_SUCCESS_SUB}</div>
+                </div>
+                {proposal.status === 'loading' && (
+                  <div style={{ ...styles.formHint, marginTop: 16 }}>
+                    正在为你生成初步保障方向说明(结合产品库与条款检索,约需 1–3 分钟,请勿关闭页面)…
+                  </div>
+                )}
+                {proposal.status === 'error' && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={styles.errorText} role="alert">
+                      方案生成失败:{proposal.error}
+                    </div>
+                    <button
+                      type="button"
+                      style={styles.primaryBtn}
+                      onClick={() =>
+                        void proposal.start(
+                          buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }),
+                        )
+                      }
+                    >
+                      重试生成方案
+                    </button>
+                  </div>
+                )}
+                {proposal.status === 'ready' && proposal.proposal && (
+                  <ProposalView proposal={proposal.proposal} />
+                )}
+              </>
             ) : (
               <>
                 {submitState === 'error' && errorMsg && (
