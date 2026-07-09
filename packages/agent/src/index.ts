@@ -4,6 +4,15 @@ export { loadCatalogs, extractLineData, type LineProductData } from './catalogDa
 export { buildPricing } from './pricing';
 export { generateProposal, type GenerateDeps } from './pipeline';
 export {
+  createJudge,
+  LlmJudge,
+  StubJudge,
+  passScore,
+  failScore,
+  type Judge,
+  type JudgeInput,
+} from './judge';
+export {
   createChatProvider,
   OpenAIChatProvider,
   StubChatProvider,

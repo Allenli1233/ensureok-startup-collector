@@ -1,6 +1,6 @@
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadCatalogs, createChatProvider } from '@ensureok/agent';
+import { loadCatalogs, createChatProvider, createJudge } from '@ensureok/agent';
 import { createEmbeddingProvider, loadStore } from '@ensureok/rag';
 import type { ServerDeps } from './server';
 
@@ -20,5 +20,14 @@ export async function loadDeps(): Promise<ServerDeps> {
 
   const catalogs = loadCatalogs(resolve(REPO_ROOT, 'packages/catalog/data/catalog.json'));
   const ragStore = await loadStore(resolve(REPO_ROOT, 'packages/rag/data/rag-index.json'));
-  return { catalogs, ragStore, embedding: createEmbeddingProvider(), chat: createChatProvider() };
+  // 对抗式 loop 默认关闭;ADV_LOOP=1 开启(judge 用异构模型)
+  const loopOn = process.env.ADV_LOOP === '1';
+  return {
+    catalogs,
+    ragStore,
+    embedding: createEmbeddingProvider(),
+    chat: createChatProvider(),
+    judge: loopOn ? createJudge() : undefined,
+    loop: { enabled: loopOn, maxRevisions: Number(process.env.ADV_MAX_REV ?? 2) },
+  };
 }

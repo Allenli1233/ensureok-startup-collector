@@ -108,6 +108,63 @@ describe('check_compliance', () => {
     expect(r.ok && r.data.clean).toBe(false);
     if (r.ok) expect(r.data.violations.some((v) => v.rule === 'R2_cta')).toBe(true);
   });
+
+  // ── 对抗式复审确认的绕过(回归):红线绝不可漏过闸门 ──
+  const hit = (text: string, rule: string) => {
+    const r = checkCompliance({ text });
+    expect(r.ok && r.data.clean, `应命中 ${rule}: ${text}`).toBe(false);
+    if (r.ok) expect(r.data.violations.some((v) => v.rule === rule), `应命中 ${rule}: ${text}`).toBe(true);
+  };
+  const clean = (text: string) => {
+    const r = checkCompliance({ text }) as ToolOk<{ clean: boolean }>;
+    expect(r.data.clean, `应放行(勿误伤): ${text}`).toBe(true);
+  };
+
+  describe('R1 保费:加固后覆盖的绕过', () => {
+    it('线索词近旁的裸数字(无单位)', () => {
+      hit('年保费约 8000,性价比高。', 'R1_premium');
+      hit('人均保费约 300/人。', 'R1_premium');
+    });
+    it('全角数字 + 货币符号/单位', () => {
+      hit('年保费约￥５０００元。', 'R1_premium');
+      hit('大约５０００元。', 'R1_premium');
+    });
+    it('中文数字裸量(无"元")靠线索词命中', () => {
+      hit('年保费约五万。', 'R1_premium');
+      hit('保费大概三千。', 'R1_premium');
+    });
+    it('外币金额', () => {
+      hit('年保费约 3000 美元。', 'R1_premium');
+      hit('大约 $3000/年。', 'R1_premium');
+      hit('USD 3000 起。', 'R1_premium');
+    });
+    it('不误伤:产品名/成语/无价格语境', () => {
+      clean('百万医疗险保障范围广,建议关注免赔额。');
+      clean('提醒:千万不要漏保上下班途中风险。');
+      clean('该险种保障责任清晰,理赔流程规范。');
+    });
+  });
+
+  describe('R2 CTA / R3 强制:结构化后覆盖的变体', () => {
+    it('CTA 副词+动词变体', () => {
+      hit('扫码即可投保。', 'R2_cta');
+      hit('建议尽快投保。', 'R2_cta');
+      hit('现在就投保。', 'R2_cta');
+    });
+    it('不误伤中性建议', () => {
+      clean('可结合企业情况评估是否投保。');
+    });
+    it('监管强制的参保/配置措辞', () => {
+      hit('依法必须参保。', 'R3_mandate');
+      hit('国家规定企业需配置该保险。', 'R3_mandate');
+    });
+  });
+
+  describe('R4 具名报价:中文/全角数字终值', () => {
+    it('保司 + 报价 + 中文数字', () => {
+      hit('平安报价仅需五万。', 'R4_named_quote');
+    });
+  });
 });
 
 describe('executor 护栏', () => {

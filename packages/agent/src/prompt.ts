@@ -9,6 +9,8 @@ export interface ItemPromptContext {
   insurers: string[];
   priceTables: MdTable[];
   evidence: RetrievedChunk[];
+  /** 对抗式重写时:上一版的质检评语,要求针对性改进 */
+  critique?: string;
 }
 
 const SYSTEM = `你是保险风险保障方向撰写助手,为中国创业公司生成"单个险种"的方向性保障建议条目(非投保建议书、非报价)。
@@ -18,8 +20,10 @@ const SYSTEM = `你是保险风险保障方向撰写助手,为中国创业公司
 3. 不得写"立即投保/购买/成交/最优价"等招揽话术;这是方向性风险建议。
 4. 保司只能引用<产品库保司>列出的,不得杜撰。
 5. 语气中立、专业,先守底线再求完美,条款比价格重要。
+6. keyClauses 每条须标出支撑它的证据编号(上文 [E1]/[E2]…),放进 evidence 数组;证据里找不到支撑就留空数组,绝不硬凑。
 只输出一个 JSON 对象(不要代码围栏、不要多余文字),结构:
-{"coverageDirection": string, "rationale": string, "keyClauses": string[]}`;
+{"coverageDirection": string, "rationale": string,
+ "keyClauses": [{"text": string, "evidence": ["E1", ...], "clauseType": "责任|除外|免赔|其他"}]}`;
 
 export function buildItemMessages(ctx: ItemPromptContext): ChatMessage[] {
   const priceNote = ctx.priceTables.length
@@ -41,7 +45,11 @@ ${priceNote}
 ${evidence}
 </证据>
 
-请基于以上生成该险种的 JSON 条目:coverageDirection=承保方向/保障结构;rationale=结合画像的推荐理由;keyClauses=从证据摘取的条款要点数组。只输出 JSON。`;
+请基于以上生成该险种的 JSON 条目:coverageDirection=承保方向/保障结构;rationale=结合画像的推荐理由;keyClauses=从证据摘取的条款要点(每条含 text + evidence 证据编号数组 + clauseType)。只输出 JSON。${
+    ctx.critique
+      ? `\n\n【上一版质检评语,请针对性改进后重写(严格基于证据、不得编造、保持字段结构不变)】\n${ctx.critique}`
+      : ''
+  }`;
 
   return [
     { role: 'system', content: SYSTEM },

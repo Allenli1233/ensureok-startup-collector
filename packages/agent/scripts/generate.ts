@@ -11,6 +11,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createEmbeddingProvider, loadStore } from '@ensureok/rag';
 import { createChatProvider } from '../src/llm';
+import { createJudge } from '../src/judge';
 import { loadCatalogs } from '../src/catalogData';
 import { generateProposal } from '../src/pipeline';
 import type { ProposalRequest } from '../src/types';
@@ -33,13 +34,22 @@ const ragStore = await loadStore(resolve(REPO_ROOT, 'packages/rag/data/rag-index
 const embedding = createEmbeddingProvider();
 const chat = createChatProvider();
 
-console.log(`引擎: LLM=${chat.id}/${chat.model} · RAG=${embedding.id}/${embedding.model} · 险种库=${catalogs.size} · 索引=${ragStore.size()} 块`);
+// 对抗式 loop 默认关闭;ADV_LOOP=1 开启(judge 用异构模型,见 .env)
+const loopOn = process.env.ADV_LOOP === '1';
+const judge = loopOn ? createJudge() : undefined;
+
+console.log(
+  `引擎: LLM=${chat.id}/${chat.model} · RAG=${embedding.id}/${embedding.model} · 险种库=${catalogs.size} · 索引=${ragStore.size()} 块` +
+    (loopOn ? ` · 对抗loop=on(judge=${judge?.model})` : ' · 对抗loop=off'),
+);
 
 const proposal = await generateProposal(req, {
   catalogs,
   ragStore,
   embedding,
   chat,
+  judge,
+  loop: { enabled: loopOn, maxRevisions: Number(process.env.ADV_MAX_REV ?? 2) },
   generatedAt: new Date().toISOString(),
   topK: 5,
 });
@@ -47,7 +57,10 @@ const proposal = await generateProposal(req, {
 console.log(`\n═══ ${proposal.meta.documentName} · ${proposal.meta.company} ═══`);
 console.log(`画像: ${proposal.clientSummary}\n`);
 for (const it of proposal.items) {
-  console.log(`【${it.tier} · ${it.urgency}】${it.lineName}   缺口: ${it.gapTitles.join('、')}`);
+  const scoreTag = it.qualityScore
+    ? ` [质检 ${it.qualityScore.total}/10 忠实${it.qualityScore.fidelity}/说服${it.qualityScore.persuasion}${it.qualityScore.passed ? '✓' : '✗'} 重写${it.revisions}次${it.degraded ? ' ·降级' : ''}]`
+    : '';
+  console.log(`【${it.tier} · ${it.urgency}】${it.lineName}   缺口: ${it.gapTitles.join('、')}${scoreTag}`);
   console.log(`  承保方向: ${oneLine(it.coverageDirection)}`);
   if (it.rationale) console.log(`  推荐理由: ${oneLine(it.rationale)}`);
   if (it.keyClauses.length) console.log(`  条款要点: ${it.keyClauses.map(oneLine).join(' | ')}`);
