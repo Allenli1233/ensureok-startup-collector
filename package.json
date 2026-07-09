@@ -22,7 +22,10 @@
     "rag:typecheck": "npm run -w @ensureok/rag typecheck",
     "agent:generate": "npm run -w @ensureok/agent generate --",
     "agent:test": "npm run -w @ensureok/agent test",
-    "agent:typecheck": "npm run -w @ensureok/agent typecheck"
+    "agent:typecheck": "npm run -w @ensureok/agent typecheck",
+    "server:start": "npm run -w @ensureok/server start",
+    "server:test": "npm run -w @ensureok/server test",
+    "server:typecheck": "npm run -w @ensureok/server typecheck"
   },
   "dependencies": {
     "react": "^18.2.0",
