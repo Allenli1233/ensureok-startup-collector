@@ -76,14 +76,44 @@ export interface KeyClause {
   clauseType?: ClauseType;
 }
 
-/** 对抗式生成的质检评分(软维度:忠实度 + 说服力,各 0–5) */
-export interface QualityScore {
-  fidelity: number;
-  persuasion: number;
-  /** 总分(fidelity + persuasion,满 10) */
-  total: number;
-  passed: boolean;
-  feedback: { fidelity: string; persuasion: string };
+/** 评分五维:合规/事实/价位=确定性(gate);忠实/说服=LLM judge 软维 */
+export type Dimension = 'compliance' | 'accuracy' | 'pricing' | 'fidelity' | 'persuasion';
+export type Verdict = 'pass' | 'fail';
+
+export interface DimensionScore {
+  /** 0–5 */
+  score: number;
+  verdict?: Verdict;
+  notes: string[];
+}
+
+/** judge 对单条 keyClause 的忠实度核对(§5.3) */
+export interface ClaimJudgement {
+  index: number;
+  status: Faithfulness;
+  /** 在全 top-K 里找到的更佳支撑 chunkId;有则改引不删(M3) */
+  rebindTo?: string | null;
+  note?: string;
+}
+
+/** 重写指令(仅针对 fail 字段;字段锁 H4) */
+export interface RevisionInstruction {
+  /** 'coverageDirection' | 'rationale' | 'keyClauses[i]' */
+  target: string;
+  action: 'rewrite' | 'rebind' | 'keep';
+  toRef?: string;
+  reason: string;
+}
+
+/** 一次评分卡(管道汇总五维,重算 weightedScore 仅防算术漂移) */
+export interface ScoreCard {
+  dimensions: Record<Dimension, DimensionScore>;
+  /** 加权总分 0–100 = Σ(weight×dimScore)/5×100 */
+  weightedScore: number;
+  verdict: Verdict;
+  /** 命中一票否决的确定性维 */
+  gateFailed: Dimension[];
+  revisionInstructions: RevisionInstruction[];
 }
 
 export interface ProposalItem {
@@ -113,8 +143,10 @@ export interface ProposalItem {
   evidenceInsufficient: boolean;
 
   // ── 对抗式生成产出(开启 loop 时填充;未开启则缺省) ──
-  /** 质检评分(judge 打分) */
-  qualityScore?: QualityScore;
+  /** 采纳版加权总分 0–100(信任信号,非排名) */
+  qualityScore?: number;
+  /** 逐轮评分卡(采纳版 + 各重写版,可观测) */
+  scoreCards?: ScoreCard[];
   /** 重写次数 */
   revisions?: number;
   /** 本险种实际 LLM 调用数(generate + judge 累计;可观测,治静默降级) */

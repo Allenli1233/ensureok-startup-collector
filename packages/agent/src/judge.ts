@@ -1,42 +1,68 @@
 import { OpenAIChatProvider } from './llm/openai';
 import type { ChatMessage, ChatProvider } from './llm/types';
-import type { QualityScore } from './types';
+import type { ClaimJudgement, RevisionInstruction } from './types';
 
+/** 送给 judge 的草稿 + 该险种全部 top-K 证据(M3:不只喂被引 chunk) */
 export interface JudgeInput {
   lineName: string;
   coverageDirection: string;
   rationale: string;
-  keyClauses: string[];
-  evidence: Array<{ text: string; sourceFile: string }>;
+  /** 逐条 keyClause:文本 + 当前引用的 chunkId(judge 可 rebind) */
+  clauses: Array<{ index: number; text: string; evidenceRefs: string[] }>;
+  /** 该险种预检索的全部 top-K(judge 在此范围内判 entail / rebind) */
+  evidence: Array<{ chunkId: string; text: string; sourceFile: string }>;
+}
+
+/** judge 只出两软维 + 逐条忠实度核对 + 重写指令(合规/价位/事实不归它管) */
+export interface JudgeSoft {
+  /** 0–5 */
+  fidelity: number;
+  /** 0–5 */
+  persuasion: number;
+  claims: ClaimJudgement[];
+  vagueSentences: string[];
+  revisionInstructions: RevisionInstruction[];
 }
 
 export interface Judge {
   readonly id: string;
   readonly model: string;
-  score(input: JudgeInput): Promise<QualityScore>;
+  /** 是否异构(与生成不同家族);仅异构且运营开启才允许破坏性删条款 */
+  readonly heterogeneous: boolean;
+  scoreSoft(input: JudgeInput): Promise<JudgeSoft>;
 }
 
-const SYSTEM = `你是保险方案的质检评审员(独立第二意见)。只评两个"软维度",各 0-5 分:
-1. fidelity 条款忠实度:方案的"条款要点/承保方向"是否忠实于<证据>原文——有没有编造证据里没有的条款、或曲解原意。证据支持越充分越高分;凭空杜撰给低分。
-2. persuasion 说服力与可读性:推荐理由是否结合企业画像、具体不空泛、专业中立。套话/泛泛给低分。
-只输出 JSON(不要多余文字、不要代码围栏):
-{"fidelity": <0-5整数>, "persuasion": <0-5整数>, "fidelityFeedback": "一句话:忠实度问题与如何改", "persuasionFeedback": "一句话:说服力问题与如何改"}
-注意:价格、保司、合规红线由系统确定性工具另行把关,不在你职责内——不要因此扣分,也不要在反馈里提金额。`;
+const SYSTEM = `你是保险方案的质检评审员(独立第二意见),只评两个"软维度",不碰价格/保司/合规红线(那些由系统确定性工具把关)。
+1. fidelity 条款忠实度(0-5):逐条看 keyClause 是否被<证据>某个 chunk 支撑。
+   - 被当前引用 chunk 支撑 → status:"entailed"。
+   - 当前引用不支撑、但<证据>里"另一个 chunk"支撑它 → status:"not-supported" 且给 rebindTo:该 chunkId(改引不删)。
+   - 讲反除外/责任、曲解原意 → status:"contradicted"。
+   - 都找不到支撑 → status:"not-supported",rebindTo:null。
+2. persuasion 说服力(0-5):rationale 是否绑定"缺口×责任×画像"、不空泛。套话给低分,并列出空泛原句。
+只输出 JSON(无代码围栏、无多余文字):
+{"fidelity":<0-5>,"persuasion":<0-5>,
+ "claims":[{"index":<条款序号>,"status":"entailed|not-supported|contradicted","rebindTo":"<chunkId 或 null>","note":"一句话"}],
+ "vagueSentences":["空泛原句"],
+ "revisionInstructions":[{"target":"keyClauses[2]|rationale|coverageDirection","action":"rewrite|rebind","toRef":"<chunkId 或省略>","reason":"改什么、为什么"}]}`;
 
-function buildJudgeMessages(input: JudgeInput): ChatMessage[] {
+function buildMessages(input: JudgeInput): ChatMessage[] {
   const evidence = input.evidence.length
-    ? input.evidence.map((e, i) => `[E${i + 1}] (${e.sourceFile})\n${e.text.slice(0, 500)}`).join('\n\n')
+    ? input.evidence.map((e) => `[${e.chunkId}] (${e.sourceFile})\n${e.text.slice(0, 500)}`).join('\n\n')
     : '(无检索证据)';
+  const clauses = input.clauses.length
+    ? input.clauses.map((c) => `#${c.index} "${c.text}"  当前引用:[${c.evidenceRefs.join(', ') || '无'}]`).join('\n')
+    : '(无条款)';
   const user = `险种:${input.lineName}
 【承保方向】${input.coverageDirection}
 【推荐理由】${input.rationale}
-【条款要点】${input.keyClauses.join(' | ') || '(空)'}
+【条款要点(逐条核对忠实度)】
+${clauses}
 
-<证据>
+<证据>(chunkId 标注,rebind 只能引这里的 id)
 ${evidence}
 </证据>
 
-对上面这条方案打分。只输出 JSON。`;
+按 system 的 JSON 结构输出评审。只输出 JSON。`;
   return [
     { role: 'system', content: SYSTEM },
     { role: 'user', content: user },
@@ -68,54 +94,91 @@ function parseJson(s: string): Record<string, unknown> | null {
   return null;
 }
 
-/** 用一个 ChatProvider(建议异构模型,如 claude-*)当 judge。总分阈值默认 7/10。 */
+const VALID_STATUS = new Set(['entailed', 'not-supported', 'contradicted']);
+function parseClaims(v: unknown): ClaimJudgement[] {
+  if (!Array.isArray(v)) return [];
+  const out: ClaimJudgement[] = [];
+  for (const c of v) {
+    if (!c || typeof c !== 'object') continue;
+    const o = c as Record<string, unknown>;
+    const index = Number(o.index);
+    if (!Number.isInteger(index)) continue;
+    const status = VALID_STATUS.has(asStr(o.status)) ? (asStr(o.status) as ClaimJudgement['status']) : 'not-supported';
+    const rebindTo = typeof o.rebindTo === 'string' && o.rebindTo ? o.rebindTo : null;
+    out.push({ index, status, rebindTo, note: asStr(o.note) });
+  }
+  return out;
+}
+function parseRevisions(v: unknown): RevisionInstruction[] {
+  if (!Array.isArray(v)) return [];
+  const out: RevisionInstruction[] = [];
+  for (const r of v) {
+    if (!r || typeof r !== 'object') continue;
+    const o = r as Record<string, unknown>;
+    const target = asStr(o.target);
+    if (!target) continue;
+    const action = o.action === 'rebind' || o.action === 'keep' ? o.action : 'rewrite';
+    out.push({ target, action, toRef: typeof o.toRef === 'string' ? o.toRef : undefined, reason: asStr(o.reason) });
+  }
+  return out;
+}
+function parseStrArr(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** 用一个 ChatProvider(建议异构模型)当 judge,只出两软维 + 逐条核对。 */
 export class LlmJudge implements Judge {
   readonly id = 'llm-judge';
   readonly model: string;
   constructor(
     private readonly chat: ChatProvider,
-    private readonly threshold = 7,
+    readonly heterogeneous: boolean,
   ) {
     this.model = chat.model;
   }
 
-  async score(input: JudgeInput): Promise<QualityScore> {
+  async scoreSoft(input: JudgeInput): Promise<JudgeSoft> {
     let parsed: Record<string, unknown> | null = null;
     try {
-      const raw = await this.chat.complete(buildJudgeMessages(input), { temperature: 0 });
+      const raw = await this.chat.complete(buildMessages(input), { temperature: 0 });
       if (process.env.JUDGE_DEBUG === '1') console.error(`[judge ${input.lineName}] raw:`, JSON.stringify(raw.slice(0, 400)));
       parsed = parseJson(raw);
     } catch (e) {
       if (process.env.JUDGE_DEBUG === '1') console.error(`[judge ${input.lineName}] ERROR:`, String(e).slice(0, 300));
       parsed = null;
     }
-    const fidelity = clamp05(parsed?.fidelity);
-    const persuasion = clamp05(parsed?.persuasion);
-    const total = fidelity + persuasion;
     return {
-      fidelity,
-      persuasion,
-      total,
-      passed: total >= this.threshold,
-      feedback: { fidelity: asStr(parsed?.fidelityFeedback), persuasion: asStr(parsed?.persuasionFeedback) },
+      fidelity: clamp05(parsed?.fidelity),
+      persuasion: clamp05(parsed?.persuasion),
+      claims: parseClaims(parsed?.claims),
+      vagueSentences: parseStrArr(parsed?.vagueSentences),
+      revisionInstructions: parseRevisions(parsed?.revisionInstructions),
     };
   }
 }
 
-export function passScore(): QualityScore {
-  return { fidelity: 5, persuasion: 5, total: 10, passed: true, feedback: { fidelity: '', persuasion: '' } };
+/** 满分软维(entailed),供构造与测试用。 */
+export function softPass(overrides: Partial<JudgeSoft> = {}): JudgeSoft {
+  return { fidelity: 5, persuasion: 5, claims: [], vagueSentences: [], revisionInstructions: [], ...overrides };
 }
-export function failScore(fb = '需更贴合证据'): QualityScore {
-  return { fidelity: 2, persuasion: 2, total: 4, passed: false, feedback: { fidelity: fb, persuasion: fb } };
+/** 低分软维(未达标),供测试用。 */
+export function softFail(overrides: Partial<JudgeSoft> = {}): JudgeSoft {
+  return { fidelity: 2, persuasion: 2, claims: [], vagueSentences: ['过泛'], revisionInstructions: [], ...overrides };
 }
 
-/** 确定性桩 judge:按给定序列返回评分(默认恒通过),供单测复现 loop 行为。 */
+/** 确定性桩 judge:按给定序列返回软维评分(默认恒满分),供单测复现 loop 行为。 */
 export class StubJudge implements Judge {
   readonly id = 'stub-judge';
   readonly model = 'stub-judge';
+  readonly heterogeneous: boolean;
   private i = 0;
-  constructor(private readonly scores: QualityScore[] = [passScore()]) {}
-  async score(): Promise<QualityScore> {
+  constructor(
+    private readonly scores: JudgeSoft[] = [softPass()],
+    heterogeneous = false,
+  ) {
+    this.heterogeneous = heterogeneous;
+  }
+  async scoreSoft(): Promise<JudgeSoft> {
     const s = this.scores[Math.min(this.i, this.scores.length - 1)];
     this.i++;
     return s;
@@ -126,8 +189,8 @@ type EnvLike = Record<string, string | undefined>;
 
 /**
  * 按 .env 选 judge 后端。强烈建议 judge 用与生成不同家族的模型(第二意见,避免自评盲区):
- *   OPENAI_JUDGE_MODEL(默认 claude-haiku-4-5)· JUDGE_THRESHOLD(默认 7/10)
- * 无 key → StubJudge(恒通过,供本地跑通)。
+ *   OPENAI_JUDGE_MODEL(默认 claude-haiku-4-5)· JUDGE_HETEROGENEOUS=1 声明异构(允许破坏性,需再开 fidelityDestructive)
+ * 无 key → StubJudge(恒满分,供本地跑通)。
  */
 export function createJudge(env: EnvLike = process.env): Judge {
   if (env.OPENAI_API_KEY) {
@@ -136,10 +199,7 @@ export function createJudge(env: EnvLike = process.env): Judge {
       baseUrl: env.OPENAI_BASE_URL,
       model: env.OPENAI_JUDGE_MODEL ?? 'claude-haiku-4-5-20251001',
     });
-    // 防御式解析:空串/非数字都回退默认 7(避免 Number('')=0 关掉闸门、Number('x')=NaN 全判不达标)
-    const t = Number(env.JUDGE_THRESHOLD);
-    const threshold = Number.isFinite(t) && t > 0 ? t : 7;
-    return new LlmJudge(chat, threshold);
+    return new LlmJudge(chat, env.JUDGE_HETEROGENEOUS === '1');
   }
   return new StubJudge();
 }

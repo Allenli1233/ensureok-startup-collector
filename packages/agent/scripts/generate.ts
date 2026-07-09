@@ -57,9 +57,12 @@ const proposal = await generateProposal(req, {
 console.log(`\n═══ ${proposal.meta.documentName} · ${proposal.meta.company} ═══`);
 console.log(`画像: ${proposal.clientSummary}\n`);
 for (const it of proposal.items) {
-  const scoreTag = it.qualityScore
-    ? ` [质检 ${it.qualityScore.total}/10 忠实${it.qualityScore.fidelity}/说服${it.qualityScore.persuasion}${it.qualityScore.passed ? '✓' : '✗'} 重写${it.revisions}次${it.degraded ? ' ·降级' : ''}]`
-    : '';
+  const card = it.scoreCards?.[it.scoreCards.length - 1];
+  const dims = card ? ` 忠实${card.dimensions.fidelity.score}/说服${card.dimensions.persuasion.score}${card.gateFailed.length ? ` gate:${card.gateFailed.join('/')}` : ''}` : '';
+  const scoreTag =
+    typeof it.qualityScore === 'number'
+      ? ` [质检 ${it.qualityScore}/100${dims} 重写${it.revisions}次·调用${it.callsUsed}${it.degraded ? ' ·降级' : ''}]`
+      : '';
   console.log(`【${it.tier} · ${it.urgency}】${it.lineName}   缺口: ${it.gapTitles.join('、')}${scoreTag}`);
   console.log(`  承保方向: ${oneLine(it.coverageDirection)}`);
   if (it.rationale) console.log(`  推荐理由: ${oneLine(it.rationale)}`);

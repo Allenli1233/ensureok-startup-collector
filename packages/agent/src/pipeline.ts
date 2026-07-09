@@ -5,9 +5,10 @@ import type { Judge, JudgeInput } from './judge';
 import type { ChatProvider } from './llm/types';
 import { planLines } from './lineMapping';
 import { buildPricing } from './pricing';
-import { buildItemMessages } from './prompt';
+import { buildItemMessages, type ReviseContext } from './prompt';
+import { applyFaithfulness, buildScoreCard, scoreDeterministic } from './scoring';
 import { checkCompliance } from './tools/checkCompliance';
-import type { Citation, KeyClause, Proposal, ProposalItem, ProposalRequest, QualityScore } from './types';
+import type { Citation, KeyClause, Proposal, ProposalItem, ProposalRequest, ScoreCard, Verdict } from './types';
 
 export interface GenerateDeps {
   catalogs: Map<InsuranceLineId, ProductCatalog>;
@@ -28,6 +29,11 @@ export interface GenerateDeps {
     maxRevisions?: number;
     /** 单 proposal 全局 LLM 调用预算硬顶(generate+judge 累计;默认无限) */
     callBudget?: number;
+    /**
+     * 忠实度 not-supported 是否允许破坏性删条款(默认 false = 只标⚠待核不删)。
+     * 仅当 judge 异构(deps.judge.heterogeneous)且此处显式 true 才生效(C2:单模型不自动删)。
+     */
+    fidelityDestructive?: boolean;
   };
 }
 
@@ -63,8 +69,10 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       evidence = [];
     }
 
-    // 2) 生成叙述(可带上一版评语重写)。调用计数由调用方按整轮预扣(见对抗 loop),此处不自增。
-    const composeNarrative = async (critique?: string): Promise<Narrative> => {
+    // 2) 生成叙述(可带字段锁重写)。调用计数由调用方按整轮预扣(见对抗 loop),此处不自增。
+    const evidenceIds = evidence.map((e) => e.id);
+    const headingByChunk = new Map(evidence.map((e) => [e.id, e.meta.headingPath] as const));
+    const composeNarrative = async (revise?: ReviseContext): Promise<Narrative> => {
       const messages = buildItemMessages({
         lineName,
         gapTitles: p.gapTitles,
@@ -72,7 +80,7 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
         insurers: lineData?.insurers ?? [],
         priceTables: lineData?.priceTables ?? [],
         evidence,
-        critique,
+        revise,
       });
       try {
         const parsed = parseLlmJson(await deps.chat.complete(messages));
@@ -80,7 +88,7 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
           return {
             coverageDirection: asStr(parsed.coverageDirection),
             rationale: asStr(parsed.rationale),
-            keyClauses: parseKeyClauses(parsed.keyClauses, evidence.map((e) => e.id)),
+            keyClauses: parseKeyClauses(parsed.keyClauses, evidenceIds),
           };
         }
       } catch {
@@ -89,54 +97,82 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       return { coverageDirection: '', rationale: '', keyClauses: [] };
     };
 
-    // 3) 对抗 loop(generate → judge → 非破坏性重写)
-    //    预算记账:必发的首次生成计 1 次;首评与每轮重写受 callBudget 硬顶约束。
-    //    每轮重写=compose+judge 共 2 次调用,进入前"同步预扣"整轮额度——既保证不超硬顶,
-    //    也让并发险种共享的 budget 在 check 与 spend 之间无 await 缝隙(避免竞态重复放行)。
+    // 3) 对抗 loop:generate → 确定性三维 + judge 两软维 → 汇总 ScoreCard → 字段锁重写 → 取最优版。
+    //    每轮重写=compose+judge 共 2 次调用,进入前"同步预扣"整轮额度(不超 callBudget 硬顶、并发无缝隙)。
+    const whitelist = lineData?.insurers ?? [];
+    const textOf = (n: Narrative): string => `${n.coverageDirection}\n${n.rationale}\n${n.keyClauses.map((k) => k.text).join('\n')}`;
+    const softInput = (n: Narrative): JudgeInput => ({
+      lineName,
+      coverageDirection: n.coverageDirection,
+      rationale: n.rationale,
+      clauses: n.keyClauses.map((k, i) => ({ index: i, text: k.text, evidenceRefs: k.evidenceRefs })),
+      evidence: evidence.map((e) => ({ chunkId: e.id, text: e.text, sourceFile: e.meta.sourceFile })),
+    });
+    const fidelityDestructive = Boolean(deps.loop?.fidelityDestructive && deps.judge?.heterogeneous);
+    // 对一版草稿评分:确定性三维 + judge 两软维 → ScoreCard,并落忠实度到条款(非破坏性)
+    const scoreDraft = async (n: Narrative, prev?: Verdict): Promise<{ card: ScoreCard; clauses: KeyClause[] }> => {
+      const det = scoreDeterministic(textOf(n), whitelist);
+      const soft = await deps.judge!.scoreSoft(softInput(n));
+      const card = buildScoreCard(det, soft, prev);
+      const { clauses } = applyFaithfulness(n.keyClauses, soft.claims, headingByChunk, fidelityDestructive);
+      return { card, clauses };
+    };
+
     budget.used++; // 首次生成(至少 1 次,不可省)
-    let callsUsed = 1; // 本险种实际 LLM 调用数(与 budget.used 同步,但按险种独立计)
+    let callsUsed = 1;
     let composed = await composeNarrative();
-    let qualityScore: QualityScore | undefined;
+    let scoreCards: ScoreCard[] | undefined;
+    let qualityScore: number | undefined;
     let revisions = 0;
     let degraded = false;
     let degradedReason: string | undefined;
 
     if (loopOn && deps.judge) {
-      const toInput = (n: Narrative): JudgeInput => ({
-        lineName,
-        coverageDirection: n.coverageDirection,
-        rationale: n.rationale,
-        keyClauses: n.keyClauses.map((k) => k.text),
-        evidence: evidence.map((e) => ({ text: e.text, sourceFile: e.meta.sourceFile })),
-      });
+      const maxRev = deps.loop?.maxRevisions ?? 2;
+      const cards: ScoreCard[] = [];
+      let card: ScoreCard | undefined;
+      let best: { composed: Narrative; card: ScoreCard } | undefined;
+
       // 首评(额度不足则跳过,退回单次生成)
       if (budget.used < budget.max) {
         budget.used++;
         callsUsed++;
-        qualityScore = await deps.judge.score(toInput(composed));
+        const r = await scoreDraft(composed);
+        composed = { ...composed, keyClauses: r.clauses };
+        card = r.card;
+        cards.push(card);
+        best = { composed, card };
       }
-      const maxRev = deps.loop?.maxRevisions ?? 2;
-      while (qualityScore && !qualityScore.passed && revisions < maxRev && budget.used + 2 <= budget.max) {
-        budget.used += 2; // 预扣整轮(compose+judge),同步占额
+
+      while (card && card.verdict === 'fail' && revisions < maxRev && budget.used + 2 <= budget.max) {
+        budget.used += 2; // 预扣整轮
         callsUsed += 2;
-        const critique = `忠实度 ${qualityScore.fidelity}/5(${qualityScore.feedback.fidelity});说服力 ${qualityScore.persuasion}/5(${qualityScore.feedback.persuasion})。`;
-        const revised = await composeNarrative(critique);
-        const revisedScore = await deps.judge.score(toInput(revised));
+        const revised = await composeNarrative(buildReviseContext(composed, card));
+        const rr = await scoreDraft(revised, card.verdict);
         revisions++;
-        // 非破坏性 + 滞回:只有变好才采纳,否则保留旧版并停止(防越改越差)
-        if (revisedScore.total >= qualityScore.total) {
-          composed = revised;
-          qualityScore = revisedScore;
-          if (qualityScore.passed) break;
-        } else {
-          break;
-        }
+        const revisedComposed: Narrative = { ...revised, keyClauses: rr.clauses };
+        cards.push(rr.card);
+        if (!best || rr.card.weightedScore > best.card.weightedScore) best = { composed: revisedComposed, card: rr.card };
+        card = rr.card;
+        composed = revisedComposed;
+        if (card.verdict === 'pass') break;
       }
-      if (!qualityScore || !qualityScore.passed) {
+
+      // 取最优版(按 weightedScore;非破坏性:不因末轮变差而丢弃更优的早期版)
+      if (best) {
+        composed = best.composed;
+        card = best.card;
+        qualityScore = best.card.weightedScore;
+      }
+      scoreCards = cards;
+      if (!best || best.card.verdict === 'fail') {
         degraded = true;
-        degradedReason = qualityScore
-          ? `质检未达标(${qualityScore.total}/10),重写 ${revisions} 次后取最优版`
+        degradedReason = best
+          ? `质检未达标(${best.card.weightedScore}/100,gate:${best.card.gateFailed.join('/') || '无'}),重写 ${revisions} 次后取最优版`
           : '调用预算不足未能质检,退回单次生成';
+      } else if (composed.keyClauses.some((k) => k.faithfulness === 'unverified')) {
+        degraded = true;
+        degradedReason = '含待核条款(证据未确认,标注待持牌顾问核对)';
       }
     }
 
@@ -180,6 +216,7 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       citations,
       evidenceInsufficient: evidence.length === 0,
       qualityScore,
+      scoreCards,
       revisions: loopOn ? revisions : undefined,
       callsUsed,
       degraded: degraded || undefined,
@@ -236,6 +273,22 @@ function parseLlmJson(s: string): Record<string, unknown> | null {
 
 function asStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+/** 字段锁重写上下文(H4):回填上一版 + 锁定 pass 字段 + 仅改 fail 字段。 */
+function buildReviseContext(prev: Narrative, card: ScoreCard): ReviseContext {
+  const prevDraftJson = JSON.stringify({
+    coverageDirection: prev.coverageDirection,
+    rationale: prev.rationale,
+    keyClauses: prev.keyClauses.map((k) => ({ text: k.text, evidence: k.evidenceRefs, clauseType: k.clauseType })),
+  });
+  const allFields = ['coverageDirection', 'rationale', ...prev.keyClauses.map((_, i) => `keyClauses[${i}]`)];
+  const instructions = card.revisionInstructions.length
+    ? card.revisionInstructions
+    : [{ target: 'rationale', action: 'rewrite' as const, reason: '说服力/忠实度不足,绑定缺口×责任×画像并严格贴合证据' }];
+  const targets = new Set(instructions.map((i) => i.target));
+  const lockedFields = allFields.filter((f) => !targets.has(f));
+  return { prevDraftJson, lockedFields, instructions };
 }
 
 /**

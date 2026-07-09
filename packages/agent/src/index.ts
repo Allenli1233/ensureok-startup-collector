@@ -7,11 +7,13 @@ export {
   createJudge,
   LlmJudge,
   StubJudge,
-  passScore,
-  failScore,
+  softPass,
+  softFail,
   type Judge,
   type JudgeInput,
+  type JudgeSoft,
 } from './judge';
+export { scoreDeterministic, buildScoreCard, decideVerdict, applyFaithfulness, PASS_THRESHOLD, FAIL_THRESHOLD } from './scoring';
 export {
   createChatProvider,
   OpenAIChatProvider,

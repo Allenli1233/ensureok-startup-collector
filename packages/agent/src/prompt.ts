@@ -1,6 +1,16 @@
 import type { MdTable } from '@ensureok/catalog';
 import type { RetrievedChunk } from '@ensureok/rag';
 import type { ChatMessage } from './llm/types';
+import type { RevisionInstruction } from './types';
+
+export interface ReviseContext {
+  /** 上一版草稿(原样回填,让模型看到自己写的) */
+  prevDraftJson: string;
+  /** 锁定字段(原样保留,禁止改动) */
+  lockedFields: string[];
+  /** 仅针对 fail 字段的重写指令 */
+  instructions: RevisionInstruction[];
+}
 
 export interface ItemPromptContext {
   lineName: string;
@@ -9,8 +19,8 @@ export interface ItemPromptContext {
   insurers: string[];
   priceTables: MdTable[];
   evidence: RetrievedChunk[];
-  /** 对抗式重写时:上一版的质检评语,要求针对性改进 */
-  critique?: string;
+  /** 对抗式重写(字段锁 H4):只改 fail 字段,pass 字段锁死 */
+  revise?: ReviseContext;
 }
 
 const SYSTEM = `你是保险风险保障方向撰写助手,为中国创业公司生成"单个险种"的方向性保障建议条目(非投保建议书、非报价)。
@@ -45,14 +55,35 @@ ${priceNote}
 ${evidence}
 </证据>
 
-请基于以上生成该险种的 JSON 条目:coverageDirection=承保方向/保障结构;rationale=结合画像的推荐理由;keyClauses=从证据摘取的条款要点(每条含 text + evidence 证据编号数组 + clauseType)。只输出 JSON。${
-    ctx.critique
-      ? `\n\n【上一版质检评语,请针对性改进后重写(严格基于证据、不得编造、保持字段结构不变)】\n${ctx.critique}`
-      : ''
-  }`;
+请基于以上生成该险种的 JSON 条目:coverageDirection=承保方向/保障结构;rationale=结合画像的推荐理由;keyClauses=从证据摘取的条款要点(每条含 text + evidence 证据编号数组 + clauseType)。只输出 JSON。`;
 
-  return [
+  const base: ChatMessage[] = [
     { role: 'system', content: SYSTEM },
     { role: 'user', content: user },
+  ];
+  if (!ctx.revise) return base;
+
+  // 字段锁重写(H4):回填上一版 → 锁定 pass 字段 → 只改 fail 字段
+  const r = ctx.revise;
+  const locked = r.lockedFields.length ? r.lockedFields.map((f) => `- ${f}`).join('\n') : '(无)';
+  const instr = r.instructions.length
+    ? r.instructions
+        .map((i) => `- ${i.target}:${i.action}${i.toRef ? `(改引 ${i.toRef})` : ''} —— ${i.reason}`)
+        .join('\n')
+    : '- rationale:rewrite —— 结合缺口×责任×画像,去套话';
+  const reviseUser = `质检未通过,按下述做"字段级"重写。输出同结构 JSON。
+
+锁定(原样逐字保留,禁止改动,仅供上下文):
+${locked}
+
+仅修改以下字段(其余锁定字段必须逐字回填原值):
+${instr}
+
+硬约束不变:不写价格数字(含中文数字如"约三千")、不写招揽话术、保司仅限白名单、keyClauses 每条须能对应真实证据编号。只输出 JSON。`;
+
+  return [
+    ...base,
+    { role: 'assistant', content: r.prevDraftJson },
+    { role: 'user', content: reviseUser },
   ];
 }

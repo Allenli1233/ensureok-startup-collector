@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { InsuranceLineId, ProductCatalog } from '@ensureok/catalog';
 import { JsonVectorStore, StubEmbeddingProvider, type EmbeddedChunk } from '@ensureok/rag';
 import { StubChatProvider } from '../src/llm/stub';
-import { StubJudge, failScore, passScore } from '../src/judge';
+import { StubJudge, softFail, softPass, type JudgeSoft } from '../src/judge';
 import { generateProposal, type GenerateDeps } from '../src/pipeline';
 import type { ChatProvider } from '../src/llm/types';
-import type { ProposalRequest, QualityScore } from '../src/types';
+import type { ProposalRequest } from '../src/types';
 
 function catalog(): ProductCatalog {
   return {
@@ -40,7 +40,7 @@ const req: ProposalRequest = {
   diagnosis: { total: 1, mandatoryCount: 0, findings: [{ id: 'er', line: 'line_a', title: '雇主责任险未覆盖', desc: '', coverage: '雇主责任险', urgency: 'high' }] },
 };
 
-async function deps(chat: ChatProvider, judgeScores?: QualityScore[]): Promise<GenerateDeps> {
+async function deps(chat: ChatProvider, judgeScores?: JudgeSoft[]): Promise<GenerateDeps> {
   return {
     catalogs: new Map<InsuranceLineId, ProductCatalog>([['employer_liability', catalog()]]),
     ragStore: await store(),
@@ -111,7 +111,7 @@ describe('PR3 keyClauses 结构升级', () => {
 
   it('callsUsed:loop 开、重写 1 次 → generate+judge 累计 4 次', async () => {
     const chat = new StubChatProvider() as ChatProvider;
-    const p = await generateProposal(req, await deps(chat, [failScore(), passScore()]));
+    const p = await generateProposal(req, await deps(chat, [softFail(), softPass()]));
     expect(p.items[0].revisions).toBe(1);
     expect(p.items[0].callsUsed).toBe(4); // draft1 + judge1 + revise(compose1+judge1)
   });
