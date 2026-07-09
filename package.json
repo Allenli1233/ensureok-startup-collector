@@ -19,7 +19,10 @@
     "rag:ingest": "npm run -w @ensureok/rag ingest",
     "rag:query": "npm run -w @ensureok/rag query --",
     "rag:test": "npm run -w @ensureok/rag test",
-    "rag:typecheck": "npm run -w @ensureok/rag typecheck"
+    "rag:typecheck": "npm run -w @ensureok/rag typecheck",
+    "agent:generate": "npm run -w @ensureok/agent generate --",
+    "agent:test": "npm run -w @ensureok/agent test",
+    "agent:typecheck": "npm run -w @ensureok/agent typecheck"
   },
   "dependencies": {
     "react": "^18.2.0",
