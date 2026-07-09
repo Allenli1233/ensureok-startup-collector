@@ -5,6 +5,8 @@ import type { Proposal, ProposalRequest } from './types';
 export interface ProposalState {
   status: 'idle' | 'loading' | 'ready' | 'error';
   proposal?: Proposal;
+  /** 报告解读 chat 用(POST /agent/proposals/:id/chat);mock 模式为占位 id */
+  taskId?: string;
   error?: string;
 }
 
@@ -15,8 +17,8 @@ export function useProposal(): ProposalState & { start: (req: ProposalRequest) =
   const start = useCallback(async (req: ProposalRequest) => {
     setState({ status: 'loading' });
     try {
-      const proposal = await getProposalProvider()(req);
-      setState({ status: 'ready', proposal });
+      const { proposal, taskId } = await getProposalProvider()(req);
+      setState({ status: 'ready', proposal, taskId });
     } catch (e) {
       setState({ status: 'error', error: e instanceof Error ? e.message : String(e) });
     }

@@ -24,7 +24,7 @@ import { LogoMark } from './LogoMark';
 import { track } from '../api/tracker';
 import { useProposal } from '../proposal/useProposal';
 import { buildProposalRequest } from '../proposal/buildRequest';
-import { ProposalView } from '../proposal/ProposalView';
+import { ReportView } from '../proposal/ReportView';
 import type { ProposalRequest } from '../proposal/types';
 import {
   OVERSEAS_COUNTRIES,
@@ -154,7 +154,7 @@ export function StartupProfileCollector() {
         <h1 style={styles.title}>创业公司保障画像 · 3 分钟</h1>
         <p style={styles.subtitle}>
           围绕初创绕不开的三条风险线——劳动用工 · 出海合同 · 数据合规,
-          约 3 分钟生成你公司的保障缺口诊断,再由顾问出完整体检报告。
+          约 3 分钟生成你公司的保障缺口诊断与可交互体检报告。
         </p>
       </div>
 
@@ -365,8 +365,9 @@ export function StartupProfileCollector() {
                   </div>
                 )}
                 {proposal.status === 'ready' && proposal.proposal && (
-                  <ProposalView
+                  <ReportView
                     proposal={proposal.proposal}
+                    taskId={proposal.taskId}
                     onRegenerate={handleRegenerate}
                     currentProfile={
                       buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }).profile

@@ -1,0 +1,295 @@
+/**
+ * 报告(ReportView)· treemap 方块 + 动画 + 打印样式。
+ * 纯 CSS transform/opacity 动画,尊重 prefers-reduced-motion;零动画依赖。
+ * 屏幕看 treemap(暖黑),打印走结构化附录(暖纸,信息完整)。
+ */
+
+/* 强 ease-out(编辑级手感,比内置缓动更有意图) */
+:root {
+  --rv-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* ── 屏幕 / 打印分流 ── */
+.rv-print {
+  display: none;
+}
+.rv-screen {
+  display: block;
+}
+
+/* 报告屏幕视图打破 640 窄栏居中占宽;防其在滚动根产生横向滚动条 */
+.app-scroll-root {
+  overflow-x: hidden;
+}
+
+/* ── treemap 画布(暖黑) ── */
+.rv-canvas {
+  position: relative;
+  width: 100%;
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 20% 0%, rgba(184, 92, 60, 0.16), transparent 55%),
+    radial-gradient(90% 80% at 100% 100%, rgba(110, 104, 92, 0.14), transparent 60%),
+    var(--ink-900);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 50px rgba(30, 18, 10, 0.28);
+}
+
+/* 组标签(浮在各紧迫分层区左上角)。不透明 + 高 z-index + 不吃指针:
+   稳定压在方块(含 hover 态 z:3)之上,不再与最大块标题糊成一团。 */
+.rv-group-label {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fbf1e9;
+  background: rgba(26, 19, 15, 0.94);
+  box-shadow: 0 2px 8px rgba(10, 6, 3, 0.4);
+  border: 1px solid rgba(251, 241, 233, 0.18);
+  border-radius: 999px;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* 报告内输入框:内联 outline:none 的键盘可达补偿(:focus-visible 环) */
+.proposal-print input:focus-visible {
+  outline: 2px solid var(--clay-500);
+  outline-offset: 1px;
+  border-color: var(--clay-500);
+}
+
+/* ── 险种方块 ── */
+.rv-block {
+  position: absolute;
+  border: none;
+  touch-action: manipulation;
+  border-radius: 12px;
+  padding: 12px 13px;
+  text-align: left;
+  color: #fbf6f0;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-family: var(--font-sans);
+  /* 进场初始态:轻微缩小 + 下沉 + 透明 */
+  opacity: 0;
+  transform: scale(0.94) translateY(8px);
+  transition:
+    opacity 520ms var(--rv-ease-out),
+    transform 520ms var(--rv-ease-out),
+    box-shadow 200ms var(--rv-ease-out),
+    filter 200ms var(--rv-ease-out);
+}
+/* will-change 只在进场未完成时挂,进场后撤掉(避免每块永久占合成层) */
+.rv-canvas:not([data-entered='true']) .rv-block {
+  will-change: transform, opacity;
+}
+/* 有待核角标时,标题首行右侧让出角标宽度(避免遮住名字);小块角标改成不占位的小圆点 */
+.rv-block:has(.rv-block-flag) .rv-block-name {
+  padding-right: 42px;
+}
+.rv-block-sm:has(.rv-block-flag) .rv-block-name {
+  padding-right: 14px;
+}
+.rv-block-sm .rv-block-flag {
+  padding: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  font-size: 0;
+  overflow: hidden;
+  top: 7px;
+  right: 7px;
+}
+/* 方块内顶部高光(玻璃质感) */
+.rv-block::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 42%);
+  pointer-events: none;
+}
+/* 进场(画布 mounted 后,按权重错峰 transition-delay 由内联提供) */
+.rv-canvas[data-entered='true'] .rv-block {
+  opacity: 1;
+  transform: none;
+}
+
+.rv-block:focus-visible {
+  outline: 2px solid #fbf1e9;
+  outline-offset: 2px;
+}
+.rv-block:active {
+  transform: scale(0.985);
+  transition-duration: 120ms;
+}
+
+/* hover:微抬升 + 增强光晕(仅精确指针设备) */
+@media (hover: hover) and (pointer: fine) {
+  .rv-canvas[data-entered='true'] .rv-block:hover {
+    transform: translateY(-3px);
+    filter: brightness(1.05);
+    z-index: 3;
+  }
+}
+
+.rv-block-name {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  text-shadow: 0 1px 2px rgba(20, 12, 8, 0.28);
+}
+.rv-block-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(255, 253, 250, 0.95);
+}
+.rv-block-tier {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(20, 12, 8, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  white-space: nowrap;
+}
+/* 降级 / 待核角标(低调,不改主色、不报警) */
+.rv-block-flag {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 253, 250, 0.9);
+  background: rgba(20, 12, 8, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  padding: 1px 7px;
+  pointer-events: none;
+}
+/* 小块:隐藏 tier 文字,只留名字(min-floor 保证可读) */
+.rv-block.rv-block-sm {
+  padding: 9px 10px;
+}
+.rv-block.rv-block-sm .rv-block-meta {
+  margin-top: 5px;
+}
+/* 小块:名字缩到 2 行 + 略小字号,配 min-floor 干净收进,不再中途切字 */
+.rv-block-sm .rv-block-name {
+  font-size: 12.5px;
+  line-height: 1.24;
+  -webkit-line-clamp: 2;
+}
+
+/* ── 下钻详情 zoom 过渡 ── */
+.rv-detail-mask {
+  animation: rvMaskIn 200ms var(--rv-ease-out);
+}
+.rv-detail-panel {
+  animation: rvPanelIn 240ms var(--rv-ease-out);
+}
+@keyframes rvMaskIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes rvPanelIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* chat「正在解读…」三点 */
+@keyframes rvTyping {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* 浮层 chat 面板进场 */
+.rv-chat-pop {
+  animation: rvPanelIn 220ms var(--rv-ease-out);
+}
+
+/* ── 减弱动效:关掉位移/缩放/循环,仅保留不晕眩的淡入 ── */
+@media (prefers-reduced-motion: reduce) {
+  .rv-block {
+    opacity: 1;
+    transform: none;
+    transition: box-shadow 200ms ease, filter 200ms ease;
+    will-change: auto;
+  }
+  .rv-canvas[data-entered='true'] .rv-block {
+    transform: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .rv-canvas[data-entered='true'] .rv-block:hover {
+      transform: none;
+    }
+  }
+  .rv-block:active {
+    transform: none;
+  }
+  .rv-detail-mask,
+  .rv-detail-panel,
+  .rv-chat-pop {
+    animation: rvMaskIn 120ms ease;
+  }
+  .rv-detail-panel {
+    animation-name: rvMaskIn;
+  }
+  .rv-dot {
+    animation: none !important;
+  }
+}
+
+/* ── 打印:treemap 换结构化附录(暖纸,信息完整) ── */
+@media print {
+  .rv-screen {
+    display: none !important;
+  }
+  .rv-print {
+    display: block !important;
+  }
+  .proposal-compare thead {
+    display: table-header-group;
+  }
+  .proposal-compare tr {
+    break-inside: avoid;
+  }
+  .rv-print-line {
+    break-inside: avoid;
+  }
+}
