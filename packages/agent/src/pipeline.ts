@@ -2,12 +2,17 @@ import { LINE_BY_ID, type InsuranceLineId, type ProductCatalog } from '@ensureok
 import { retrieve, type EmbeddingProvider, type JsonVectorStore, type RetrievedChunk } from '@ensureok/rag';
 import { extractLineData } from './catalogData';
 import type { Judge, JudgeInput } from './judge';
-import type { ChatProvider } from './llm/types';
+import type { ChatMessage, ChatProvider } from './llm/types';
+import { runToolLoop } from './llm/toolRunner';
 import { planLines } from './lineMapping';
-import { buildPricing } from './pricing';
+import { portfolioReview } from './portfolio';
+import { buildPricing, pricingFromComputed } from './pricing';
 import { buildItemMessages, type ReviseContext } from './prompt';
 import { applyFaithfulness, buildScoreCard, scoreDeterministic } from './scoring';
 import { checkCompliance } from './tools/checkCompliance';
+import { computePricing } from './tools/computePricing';
+import { createToolExecutor } from './tools/executor';
+import { PIPELINE_TOOL_DEFS } from './tools/toolDefs';
 import type { Citation, KeyClause, Proposal, ProposalItem, ProposalRequest, ScoreCard, Verdict } from './types';
 
 export interface GenerateDeps {
@@ -20,6 +25,10 @@ export interface GenerateDeps {
   topK?: number;
   /** 逐险种生成的最大并发数(默认 5) */
   concurrency?: number;
+  /** 开启 pipeline 内 tool-calling 循环(LLM 按需回查工具);默认关(用预检索单次生成)。中转不支持则自动收敛回退。 */
+  enableToolCalling?: boolean;
+  /** tool-calling 单 turn 最大工具轮次(默认 6) */
+  maxToolSteps?: number;
   /** 评分员(建议异构模型);配了才启用对抗 loop */
   judge?: Judge;
   /** 对抗式生成 loop 配置 */
@@ -72,6 +81,14 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     // 2) 生成叙述(可带字段锁重写)。调用计数由调用方按整轮预扣(见对抗 loop),此处不自增。
     const evidenceIds = evidence.map((e) => e.id);
     const headingByChunk = new Map(evidence.map((e) => [e.id, e.meta.headingPath] as const));
+    // 可选:pipeline 内 tool-calling(LLM 按需回查);不开则预检索单次生成
+    const invoke = deps.enableToolCalling
+      ? createToolExecutor({ catalogs: deps.catalogs, ragStore: deps.ragStore, embedding: deps.embedding, audience: 'pipeline', lineScope: p.lineId })
+      : null;
+    const generate = async (messages: ChatMessage[]): Promise<string> =>
+      invoke
+        ? (await runToolLoop(deps.chat, messages, PIPELINE_TOOL_DEFS, invoke, { maxSteps: deps.maxToolSteps ?? 6 })).content
+        : deps.chat.complete(messages);
     const composeNarrative = async (revise?: ReviseContext): Promise<Narrative> => {
       const messages = buildItemMessages({
         lineName,
@@ -83,7 +100,7 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
         revise,
       });
       try {
-        const parsed = parseLlmJson(await deps.chat.complete(messages));
+        const parsed = parseLlmJson(await generate(messages));
         if (parsed) {
           return {
             coverageDirection: asStr(parsed.coverageDirection),
@@ -187,8 +204,12 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       composed = { coverageDirection: `${lineName}的方向性保障建议(内容待持牌顾问核对后提供)`, rationale: '', keyClauses: [] };
     }
 
-    // 5) 价位/保司(确定性)+ 组装
-    const pricing = buildPricing(lineData?.priceTables ?? [], lineData?.collectedAt);
+    // 5) 价位/保司(确定性)+ 组装。价位走 compute_pricing(隔离保费/排除保额),失败回退旧 buildPricing。
+    const priced = cat
+      ? computePricing({ lineId: p.lineId }, { catalogs: deps.catalogs, ragStore: deps.ragStore, embedding: deps.embedding, audience: 'pipeline', lineScope: p.lineId })
+      : null;
+    const pricing =
+      priced && priced.ok ? pricingFromComputed(priced.data) : buildPricing(lineData?.priceTables ?? [], lineData?.collectedAt);
     const citations: Citation[] = evidence.map((e) => ({
       sourceFile: e.meta.sourceFile,
       headingPath: e.meta.headingPath,
@@ -225,6 +246,9 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     };
   });
 
+  // 组合层评审(≥2 险种才有意义;§5.6)
+  const portfolio = items.length >= 2 ? await portfolioReview(items, deps.chat) : undefined;
+
   const hasConcretePrice = items.some((i) => !i.pricing.unavailable);
   return {
     meta: {
@@ -238,6 +262,7 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     },
     clientSummary,
     items,
+    portfolio,
     disclaimer: DISCLAIMER,
   };
 }

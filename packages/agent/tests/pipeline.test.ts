@@ -84,9 +84,9 @@ describe('generateProposal (stub 端到端)', () => {
     expect(item.lineId).toBe('employer_liability');
     // 保司来自产品库(结构化,非 LLM 编)
     expect(item.recommendedProducts.map((r) => r.insurer)).toEqual(['中国人保', '平安', '太平洋']);
-    // 价位数字来自产品库价格表
+    // 价位数字来自产品库价格表(PR5:compute_pricing 隔离保费/排除保额)
     expect(item.pricing.unavailable).toBe(false);
-    expect(item.pricing.display).toContain('参考价位区间');
+    expect(item.pricing.display).toContain('参考年保费');
     expect(item.pricing.minCny).toBe(93);
     expect(item.pricing.disclaimer).toContain('承保由合作持牌');
     // 叙述来自(stub)LLM

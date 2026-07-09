@@ -72,6 +72,13 @@ for (const it of proposal.items) {
   console.log(`            ${it.pricing.disclaimer}`);
   console.log(`  下钻数据: ${it.drilldownSourceFile ?? '—'} · RAG 证据 ${it.citations.length} 条${it.evidenceInsufficient ? '(证据不足)' : ''}\n`);
 }
+if (proposal.portfolio) {
+  console.log('─── 组合说明 ───');
+  console.log(`  ${oneLine(proposal.portfolio.summary)}`);
+  for (const o of proposal.portfolio.overlaps) console.log(`  ⚠ 重叠: ${o.lines.join(' × ')} —— ${oneLine(o.note)}`);
+  for (const b of proposal.portfolio.bundles) console.log(`  ▣ ${b.name}: ${b.lines.join(' + ')}`);
+  console.log('');
+}
 console.log(`免责声明: ${proposal.disclaimer}`);
 
 const outDir = join(PKG_ROOT, 'data');

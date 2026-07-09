@@ -1,7 +1,37 @@
 import type { MdTable } from '@ensureok/catalog';
+import type { ComputePricingOutput } from './tools/computePricing';
 import type { PricingHint } from './types';
 
 const PRICING_DISCLAIMER = '参考区间 · 以保司实际报价为准 · 非成交报价,承保由合作持牌经纪机构完成';
+
+/**
+ * 由 compute_pricing 的"保费隔离"结果(排除保额档)构造 PricingHint(PR5:替代 buildPricing 的全表一锅端)。
+ * 数字只来自产品库确定性计算,LLM 不参与。无隔离出保费 → 引导下钻。
+ */
+export function pricingFromComputed(out: ComputePricingOutput): PricingHint {
+  const dateNote = out.collectedAt ? ` · 数据采集于 ${out.collectedAt}` : '';
+  if (out.matchTier === 'blank' || out.premiumMinCny === undefined || out.premiumMaxCny === undefined) {
+    return {
+      display:
+        out.unavailableReason === 'no_price_table'
+          ? '价位待持牌经纪报价(该险种暂无公开价目表)'
+          : '参考保费待下钻价格表(未能从价目表隔离出保费区间)',
+      source: 'product_db',
+      collectedAt: out.collectedAt,
+      disclaimer: '承保由合作持牌经纪机构完成',
+      unavailable: true,
+    };
+  }
+  return {
+    display: `参考年保费约 ${fmtCny(out.premiumMinCny)}–${fmtCny(out.premiumMaxCny)}(已隔离保费/排除保额,精确价见下钻)`,
+    minCny: out.premiumMinCny,
+    maxCny: out.premiumMaxCny,
+    source: 'product_db',
+    collectedAt: out.collectedAt,
+    disclaimer: `${PRICING_DISCLAIMER}${dateNote}`,
+    unavailable: false,
+  };
+}
 
 /**
  * 从产品库价格表里确定性抽取人民币金额,估算参考年保费区间。

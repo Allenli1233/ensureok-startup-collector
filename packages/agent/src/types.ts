@@ -158,6 +158,19 @@ export interface ProposalItem {
   complianceFlags?: string[];
 }
 
+/** 组合层评审产出(proposal 级;§5.6):责任重叠/主次分层/出海包聚合 */
+export interface Portfolio {
+  summary: string;
+  /** 责任重叠提示(如公众责任 vs 产品责任) */
+  overlaps: { lines: string[]; note: string }[];
+  /** 主次分层说明(强制险置顶等) */
+  layering: string;
+  /** 险种聚合包(如出海三件套) */
+  bundles: { name: string; lines: string[] }[];
+  /** 组合层是否重跑过(合规不过时封顶重跑 1 次) */
+  reran: boolean;
+}
+
 export interface Proposal {
   meta: {
     documentName: '保障方案建议' | '风险保障方向说明';
@@ -173,5 +186,7 @@ export interface Proposal {
   /** 画像回显(无 PII) */
   clientSummary: string;
   items: ProposalItem[];
+  /** 组合层评审(≥2 险种时;§5.6) */
+  portfolio?: Portfolio;
   disclaimer: string;
 }
