@@ -139,6 +139,8 @@ export interface ProposalItem {
   coverageDirection: string;
   /** 推荐理由(LLM 基于画像+证据) */
   rationale: string;
+  /** 推荐理由的可解释锚点(§7.4:缺口×画像×条款;确定性派生,供前端 chip) */
+  rationaleDrivers?: RationaleDriver[];
   /** 条款要点扁平串(= keyClausesDetailed 的 text;保留兼容现前端) */
   keyClauses: string[];
   /** 条款要点结构化(带校验过的 evidenceRefs / clauseType;前端可下钻原文,PR4 可填 faithfulness) */

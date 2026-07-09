@@ -13,7 +13,7 @@ import { checkCompliance } from './tools/checkCompliance';
 import { computePricing } from './tools/computePricing';
 import { createToolExecutor } from './tools/executor';
 import { PIPELINE_TOOL_DEFS } from './tools/toolDefs';
-import type { Citation, KeyClause, ProgressItem, ProgressSnapshot, Proposal, ProposalItem, ProposalRequest, ScoreCard, Verdict } from './types';
+import type { Citation, KeyClause, ProgressItem, ProgressSnapshot, Proposal, ProposalItem, ProposalRequest, RationaleDriver, ScoreCard, Verdict } from './types';
 
 export interface GenerateDeps {
   catalogs: Map<InsuranceLineId, ProductCatalog>;
@@ -274,7 +274,9 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
         insurer,
         source: 'product_db' as const,
         sourceFile: lineData?.sourceFile ?? '',
+        matchReason: `产品库${lineName}条线在售,承保「${p.gapTitles[0] ?? '相关责任'}」(结构化来源)`,
       })),
+      rationaleDrivers: buildRationaleDrivers(p.gapTitles, req.profile, composed.keyClauses),
       pricing,
       drilldownSourceFile: lineData?.sourceFile ?? null,
       citations,
@@ -344,6 +346,22 @@ function parseLlmJson(s: string): Record<string, unknown> | null {
 
 function asStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+/** 推荐理由锚点(§7.4,确定性):缺口×画像×条款,供前端渲染可点 chip。 */
+function buildRationaleDrivers(gapTitles: string[], profile: ProposalRequest['profile'], clauses: KeyClause[]): RationaleDriver[] {
+  const out: RationaleDriver[] = [];
+  if (gapTitles[0]) out.push({ gap: gapTitles[0] });
+  const pf =
+    (profile.hasPatent && '有专利') ||
+    (profile.overseasCountries?.length && `出海 ${profile.overseasCountries.join('/')}`) ||
+    profile.industry ||
+    profile.headcount ||
+    '';
+  if (pf) out.push({ profile: pf });
+  const c0 = clauses.find((k) => k.text.trim());
+  if (c0) out.push({ clause: c0.text.slice(0, 24) });
+  return out;
 }
 
 /** 字段锁重写上下文(H4):回填上一版 + 锁定 pass 字段 + 仅改 fail 字段。 */
