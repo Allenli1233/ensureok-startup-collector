@@ -19,6 +19,7 @@ export {
 } from './judge';
 export { scoreDeterministic, buildScoreCard, decideVerdict, applyFaithfulness, PASS_THRESHOLD, FAIL_THRESHOLD } from './scoring';
 export { summarizeProposals, type MeasureReport } from './measure';
+export { answerQuestion, REFUSAL, type QaScope, type QaResult } from './qa';
 export {
   createChatProvider,
   OpenAIChatProvider,

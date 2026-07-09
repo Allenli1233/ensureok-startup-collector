@@ -13,14 +13,14 @@
  *   留资转化率分母,ref 只触发一次)→ startup_profile.lead_submitted(北极星分子)。
  *
  * 合规红线(P0):不出现保费金额、不出现「具体产品+保司」报价、无「立即投保/购买」CTA;
- * CTA 仅为「预约顾问领取完整体检报告」,持牌出单披露见 COLLECTOR_DISCLAIMER。
+ * CTA 为「领取完整体检报告」——直接生成并展示报告,不留资、不必填联系方式;
+ * 合规免责(出单由持牌经纪机构完成)见 COLLECTOR_DISCLAIMER,固定保留。
  *
  * 纪律同 /qiye:不接 i18n(单市场 PMF,中文硬编码)、不引新依赖、无 OCR/agent/账号/支付。
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LogoMark } from './LogoMark';
-import { apiUrl } from '../api/config';
 import { track } from '../api/tracker';
 import { useProposal } from '../proposal/useProposal';
 import { buildProposalRequest } from '../proposal/buildRequest';
@@ -30,8 +30,6 @@ import {
   OVERSEAS_COUNTRIES,
   COLLECTOR_PRIVACY_NOTICE,
   COLLECTOR_DISCLAIMER,
-  COLLECTOR_SUCCESS_TITLE,
-  COLLECTOR_SUCCESS_SUB,
   URGENCY_META,
   visibleQuestions,
   diagnoseGaps,
@@ -40,8 +38,6 @@ import {
   type QuestionDef,
   type QuestionId,
 } from '../config/startupProfileCollector';
-
-type SubmitState = 'idle' | 'submitting' | 'success' | 'error';
 
 const SECTION_META: Record<QuestionDef['section'], { title: string; sub?: string }> = {
   company: { title: '公司基本盘' },
@@ -68,8 +64,6 @@ export function StartupProfileCollector() {
   // ── 诊断与提交 ──
   const [showPreview, setShowPreview] = useState(false);
   const [validationMsg, setValidationMsg] = useState('');
-  const [submitState, setSubmitState] = useState<SubmitState>('idle');
-  const [errorMsg, setErrorMsg] = useState('');
 
   const previewFiredRef = useRef(false);
   const previewAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -102,7 +96,6 @@ export function StartupProfileCollector() {
     setValidationMsg('');
   };
 
-  const contactOk = phone.trim().length > 0 || wechat.trim().length > 0;
   // optional 题(如出海国家多选)不纳入必答;其余可见题需有答案
   const answersOk = visible.every((q) => q.optional || !!answers[q.id]);
   // 诊断只依赖问卷答案(纯前端确定性规则)——联系方式不是获取诊断的条件,
@@ -131,93 +124,16 @@ export function StartupProfileCollector() {
     });
   };
 
-  const handleSubmit = async () => {
-    if (submitState === 'submitting') return;
-    // 联系人必填校验在此(而非诊断步):称呼/公司/联系方式是预约顾问的前提
-    if (!name.trim() || !company.trim() || !contactOk) {
-      setSubmitState('error');
-      setErrorMsg(
-        !name.trim() || !company.trim()
-          ? '请回到第 1 步填写称呼与公司名称'
-          : '请回到第 1 步填写手机号或微信号(顾问联系用)',
-      );
-      contactCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-    setSubmitState('submitting');
-    setErrorMsg('');
-
-    const source = (() => {
-      try {
-        return new URLSearchParams(window.location.search).get('src') || undefined;
-      } catch {
-        return undefined;
-      }
-    })();
-
-    const contactType = phone.trim() ? 'phone' : 'wechat';
-    // 按当前可见性剪枝:总闸收起后的陈旧答案(如 b0 改回否后的 b1–b3)不落库,
-    // 避免顾问读到 b0=否 与 b1=是 并存的自相矛盾画像
-    const prunedAnswers = Object.fromEntries(
-      visible.map((q) => [q.id, answers[q.id]]).filter(([, v]) => !!v),
+  // 「领取完整体检报告」:直接触发生成 + 进报告,不留资、不必填联系方式(D3)。
+  // 报告即交付;可选的中性联系入口在报告内(PR-B)。合规免责(出单由持牌经纪)在报告底部固定保留。
+  const handleGetReport = () => {
+    track('startup_profile.report_viewed', {
+      lines: hitLines(diagnosis),
+      mandatory: diagnosis.mandatoryCount,
+    });
+    void proposal.start(
+      buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }),
     );
-    const body = {
-      selectedEvents: hitLines(diagnosis),
-      gapSnapshot: diagnosis.findings.map((f) => ({ eventId: f.line, title: f.title })),
-      name: name.trim(),
-      company: company.trim(),
-      contact: phone.trim() || wechat.trim(),
-      contactType,
-      // 画像(collector v1 契约):可见答案 + 双联系方式,落 startup_leads.profile_json
-      profile: {
-        version: 'collector_v1',
-        answers: prunedAnswers,
-        industryOther:
-          answers.industry === 'other' && industryOther.trim() ? industryOther.trim() : undefined,
-        // 有融资时才带融资额;未融资/留空不带
-        fundingAmount:
-          answers.funding && answers.funding !== 'none' && answers.fundingAmount?.trim()
-            ? answers.fundingAmount.trim()
-            : undefined,
-        // 出海(b0=yes)且选了国家才带;b0 改回否时不落库(与 prune 同纪律)
-        overseasCountries:
-          answers.b0 === 'yes' && answers.overseasCountries && answers.overseasCountries.length > 0
-            ? answers.overseasCountries
-            : undefined,
-        phone: phone.trim() || undefined,
-        wechat: wechat.trim() || undefined,
-      },
-      ...(source ? { source } : {}),
-    };
-
-    try {
-      const res = await fetch(apiUrl('/api/startup-leads'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json().catch(() => null)) as
-        | { ok: boolean; id?: string; error?: string }
-        | null;
-      if (res.ok && data?.ok) {
-        setSubmitState('success');
-        track('startup_profile.lead_submitted', {
-          lines: hitLines(diagnosis),
-          contactType,
-          mandatory: diagnosis.mandatoryCount,
-        });
-        // 提交成功 → 触发方案生成(不含 PII,只发脱敏画像+诊断)
-        void proposal.start(
-          buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }),
-        );
-      } else {
-        setSubmitState('error');
-        setErrorMsg(data?.error || '提交失败,请稍后再试。');
-      }
-    } catch {
-      setSubmitState('error');
-      setErrorMsg('网络异常,请检查连接后重试。');
-    }
   };
 
   // 按 section 分组渲染(保持 COLLECTOR_QUESTIONS 声明顺序)
@@ -423,12 +339,8 @@ export function StartupProfileCollector() {
           <p className="no-print" style={styles.disclaimer}>{COLLECTOR_DISCLAIMER}</p>
 
           <div style={styles.ctaSection}>
-            {submitState === 'success' ? (
+            {proposal.status !== 'idle' ? (
               <>
-                <div className="no-print" style={styles.successBox}>
-                  <div style={styles.successTitle}>{COLLECTOR_SUCCESS_TITLE}</div>
-                  <div style={styles.successSub}>{COLLECTOR_SUCCESS_SUB}</div>
-                </div>
                 {proposal.status === 'loading' && (
                   <div style={{ ...styles.formHint, marginTop: 16 }}>
                     正在为你生成初步保障方向说明(结合产品库与条款检索,约需 1–3 分钟,请勿关闭页面)…
@@ -465,22 +377,10 @@ export function StartupProfileCollector() {
               </>
             ) : (
               <>
-                {submitState === 'error' && errorMsg && (
-                  <div style={styles.errorText} role="alert">
-                    {errorMsg}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  style={{ ...styles.primaryBtn, opacity: submitState === 'submitting' ? 0.6 : 1 }}
-                  onClick={handleSubmit}
-                  disabled={submitState === 'submitting'}
-                >
-                  {submitState === 'submitting' ? '提交中…' : '预约顾问领取完整体检报告'}
+                <button type="button" style={styles.primaryBtn} onClick={handleGetReport}>
+                  领取完整体检报告
                 </button>
-                <div style={styles.formHint}>
-                  顾问 24 小时内联系;联系方式仅用于本次诊断沟通,不对外展示、不群发。
-                </div>
+                <div style={styles.formHint}>基于你提交的画像与产品库、条款检索,生成一份可交互的保障体检报告。</div>
               </>
             )}
           </div>
