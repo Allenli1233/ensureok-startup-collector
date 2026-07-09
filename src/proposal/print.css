@@ -1,0 +1,41 @@
+/* 下钻内容:屏幕上默认折叠,展开加 .open;打印时强制全部展开(附录式,信息完整) */
+.drilldown {
+  display: none;
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--soft, #f7f5f0);
+  border: 1px solid var(--sand-300, #e7e2d6);
+  border-radius: 10px;
+}
+.drilldown.open {
+  display: block;
+}
+
+@media print {
+  /* 只打印方案,隐藏问卷/按钮等其它内容 */
+  body * {
+    visibility: hidden;
+  }
+  .proposal-print,
+  .proposal-print * {
+    visibility: visible;
+  }
+  .proposal-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0 8mm;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* 打印时下钻全展开 */
+  .drilldown {
+    display: block !important;
+    break-inside: avoid;
+  }
+  .proposal-item {
+    break-inside: avoid;
+  }
+}
