@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Proposal } from '@ensureok/agent';
+import type { Proposal, ProgressSnapshot } from '@ensureok/agent';
 
 export type JobStatus = 'pending' | 'running' | 'ready' | 'error';
 
@@ -7,6 +7,8 @@ export interface Job {
   taskId: string;
   status: JobStatus;
   proposal?: Proposal;
+  /** 分阶段进度(PR5b);前端轮询消费,无则退回转圈 */
+  progress?: ProgressSnapshot;
   error?: { code: string; message: string };
   createdAt: string;
 }

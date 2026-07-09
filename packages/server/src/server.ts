@@ -44,7 +44,11 @@ async function handle(
       const job = jobs.create(now());
       json(res, 202, { taskId: job.taskId, status: job.status });
       jobs.update(job.taskId, { status: 'running' });
-      generateProposal(body as ProposalRequest, { ...deps, generatedAt: now() })
+      generateProposal(body as ProposalRequest, {
+        ...deps,
+        generatedAt: now(),
+        onProgress: (snapshot) => jobs.update(job.taskId, { progress: snapshot }),
+      })
         .then((proposal) => jobs.update(job.taskId, { status: 'ready', proposal }))
         .catch((e: unknown) =>
           jobs.update(job.taskId, { status: 'error', error: { code: 'generation_failed', message: String(e).slice(0, 300) } }),
@@ -56,7 +60,7 @@ async function handle(
     if (method === 'GET' && m) {
       const job = jobs.get(m[1]);
       if (!job) return json(res, 404, { error: { code: 'not_found', message: '任务不存在' } });
-      return json(res, 200, { taskId: job.taskId, status: job.status, proposal: job.proposal, error: job.error });
+      return json(res, 200, { taskId: job.taskId, status: job.status, progress: job.progress, proposal: job.proposal, error: job.error });
     }
 
     json(res, 404, { error: { code: 'not_found', message: 'route not found' } });

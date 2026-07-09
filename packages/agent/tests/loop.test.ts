@@ -141,6 +141,19 @@ describe('对抗式 loop(五维评分)', () => {
   });
 });
 
+describe('PR5b 分阶段进度', () => {
+  it('onProgress 逐阶段回调,末帧 stage=done 且全部 done', async () => {
+    const snaps: string[] = [];
+    const d = await deps(undefined, false);
+    d.onProgress = (s) => snaps.push(`${s.stage}:${s.done}/${s.total}`);
+    const p = await generateProposal(req, d);
+    expect(snaps[0]).toBe('planning:0/1');
+    expect(snaps.at(-1)).toBe('done:1/1');
+    expect(snaps.some((s) => s.startsWith('generating'))).toBe(true);
+    expect(p.items).toHaveLength(1);
+  });
+});
+
 describe('合规终局闸门(确定性维一票否决)', () => {
   it('生成含红线(保费金额)→ gate 否决 + 隐去 + degraded + complianceFlags', async () => {
     const leakyChat: ChatProvider = {

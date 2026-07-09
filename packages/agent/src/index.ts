@@ -3,6 +3,7 @@ export { planLines, mapCoverageToLines, type PlannedLine } from './lineMapping';
 export { loadCatalogs, extractLineData, type LineProductData } from './catalogData';
 export { buildPricing } from './pricing';
 export { generateProposal, type GenerateDeps } from './pipeline';
+export type { ProgressSnapshot, ProgressItem, Portfolio } from './types';
 export { portfolioReview } from './portfolio';
 export { pricingFromComputed } from './pricing';
 export { runToolLoop, type ToolLoopResult } from './llm/toolRunner';

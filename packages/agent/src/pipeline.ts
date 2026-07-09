@@ -13,7 +13,7 @@ import { checkCompliance } from './tools/checkCompliance';
 import { computePricing } from './tools/computePricing';
 import { createToolExecutor } from './tools/executor';
 import { PIPELINE_TOOL_DEFS } from './tools/toolDefs';
-import type { Citation, KeyClause, Proposal, ProposalItem, ProposalRequest, ScoreCard, Verdict } from './types';
+import type { Citation, KeyClause, ProgressItem, ProgressSnapshot, Proposal, ProposalItem, ProposalRequest, ScoreCard, Verdict } from './types';
 
 export interface GenerateDeps {
   catalogs: Map<InsuranceLineId, ProductCatalog>;
@@ -22,6 +22,8 @@ export interface GenerateDeps {
   chat: ChatProvider;
   /** 调用方注入生成时间(库内不取系统时间,便于测试与复现) */
   generatedAt: string;
+  /** 分阶段进度回调(PR5b;server 据此透出 progress,前端做分阶段进度条) */
+  onProgress?: (snapshot: ProgressSnapshot) => void;
   topK?: number;
   /** 逐险种生成的最大并发数(默认 5) */
   concurrency?: number;
@@ -62,10 +64,22 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
   const loopOn = Boolean(deps.judge && deps.loop?.enabled);
   const budget = { used: 0, max: deps.loop?.callBudget ?? Number.POSITIVE_INFINITY };
 
-  const items = await mapWithConcurrency(planned, deps.concurrency ?? 5, async (p): Promise<ProposalItem> => {
+  // 进度快照(PR5b):逐险种状态,供 server 透出
+  const progress: ProgressItem[] = planned.map((p) => ({
+    lineId: p.lineId,
+    lineName: deps.catalogs.get(p.lineId)?.lineName ?? LINE_BY_ID.get(p.lineId)?.lineName ?? p.lineId,
+    status: 'pending',
+  }));
+  const emit = (stage: ProgressSnapshot['stage']): void =>
+    deps.onProgress?.({ stage, total: planned.length, done: progress.filter((x) => x.status === 'done').length, perItem: progress.map((x) => ({ ...x })) });
+  emit('planning');
+
+  const items = await mapWithConcurrency(planned, deps.concurrency ?? 5, async (p, idx): Promise<ProposalItem> => {
     const cat = deps.catalogs.get(p.lineId);
     const lineName = cat?.lineName ?? LINE_BY_ID.get(p.lineId)?.lineName ?? p.lineId;
     const lineData = cat ? extractLineData(cat) : null;
+    progress[idx].status = 'generating';
+    emit('generating');
 
     // 1) RAG 证据(逐险种一次)
     let evidence: RetrievedChunk[] = [];
@@ -210,6 +224,11 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       : null;
     const pricing =
       priced && priced.ok ? pricingFromComputed(priced.data) : buildPricing(lineData?.priceTables ?? [], lineData?.collectedAt);
+
+    progress[idx].status = 'done';
+    progress[idx].degraded = degraded || undefined;
+    progress[idx].lineName = lineName;
+    emit('generating');
     const citations: Citation[] = evidence.map((e) => ({
       sourceFile: e.meta.sourceFile,
       headingPath: e.meta.headingPath,
@@ -247,7 +266,9 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
   });
 
   // 组合层评审(≥2 险种才有意义;§5.6)
+  emit('portfolio');
   const portfolio = items.length >= 2 ? await portfolioReview(items, deps.chat) : undefined;
+  emit('done');
 
   const hasConcretePrice = items.some((i) => !i.pricing.unavailable);
   return {
@@ -359,14 +380,14 @@ function parseKeyClauses(raw: unknown, evidenceIds: string[]): KeyClause[] {
 }
 
 /** 有序并发映射:最多 limit 个并发执行 fn,返回结果保持输入顺序。 */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
   const worker = async (): Promise<void> => {
     for (;;) {
       const i = next++;
       if (i >= items.length) return;
-      results[i] = await fn(items[i]);
+      results[i] = await fn(items[i], i);
     }
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));

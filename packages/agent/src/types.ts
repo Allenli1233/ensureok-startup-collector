@@ -158,6 +158,20 @@ export interface ProposalItem {
   complianceFlags?: string[];
 }
 
+/** 生成进度(PR5b:server 分阶段进度流式透出;前端消费,无则退回转圈) */
+export interface ProgressItem {
+  lineId: InsuranceLineId;
+  lineName: string;
+  status: 'pending' | 'generating' | 'done';
+  degraded?: boolean;
+}
+export interface ProgressSnapshot {
+  stage: 'planning' | 'generating' | 'portfolio' | 'done';
+  total: number;
+  done: number;
+  perItem: ProgressItem[];
+}
+
 /** 组合层评审产出(proposal 级;§5.6):责任重叠/主次分层/出海包聚合 */
 export interface Portfolio {
   summary: string;
