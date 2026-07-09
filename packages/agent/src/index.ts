@@ -18,6 +18,7 @@ export {
   type JudgeSoft,
 } from './judge';
 export { scoreDeterministic, buildScoreCard, decideVerdict, applyFaithfulness, PASS_THRESHOLD, FAIL_THRESHOLD } from './scoring';
+export { summarizeProposals, type MeasureReport } from './measure';
 export {
   createChatProvider,
   OpenAIChatProvider,

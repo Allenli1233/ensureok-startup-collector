@@ -12,6 +12,7 @@
     "generate": "tsx scripts/generate.ts",
     "probe:tools": "tsx scripts/probe-tools.ts",
     "probe:judge": "tsx scripts/probe-judge.ts",
+    "measure": "tsx scripts/measure.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
