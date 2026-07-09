@@ -15,6 +15,8 @@ export interface GenerateDeps {
   /** 调用方注入生成时间(库内不取系统时间,便于测试与复现) */
   generatedAt: string;
   topK?: number;
+  /** 逐险种生成的最大并发数(默认 5)。并行大幅缩短总时长(串行 2-3 分钟 → 约 30-60 秒) */
+  concurrency?: number;
 }
 
 const DISCLAIMER =
@@ -24,9 +26,9 @@ const DISCLAIMER =
 export async function generateProposal(req: ProposalRequest, deps: GenerateDeps): Promise<Proposal> {
   const planned = planLines(req.diagnosis.findings);
   const clientSummary = buildClientSummary(req);
-  const items: ProposalItem[] = [];
 
-  for (const p of planned) {
+  // 逐险种并行生成(有序、限并发);每个险种 = RAG 检索 + LLM 叙述 + 产品/价位组装
+  const items = await mapWithConcurrency(planned, deps.concurrency ?? 5, async (p): Promise<ProposalItem> => {
     const cat = deps.catalogs.get(p.lineId);
     const lineName = cat?.lineName ?? LINE_BY_ID.get(p.lineId)?.lineName ?? p.lineId;
     const lineData = cat ? extractLineData(cat) : null;
@@ -76,7 +78,7 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       docCategory: e.meta.docCategory,
     }));
 
-    items.push({
+    return {
       lineId: p.lineId,
       lineName,
       urgency: p.urgency,
@@ -94,8 +96,8 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
       drilldownSourceFile: lineData?.sourceFile ?? null,
       citations,
       evidenceInsufficient: evidence.length === 0,
-    });
-  }
+    };
+  });
 
   const hasConcretePrice = items.some((i) => !i.pricing.unavailable);
   return {
@@ -148,4 +150,19 @@ function asStr(v: unknown): string {
 
 function asStrArr(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** 有序并发映射:最多 limit 个并发执行 fn,返回结果保持输入顺序。用于并行逐险种生成。 */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
 }
