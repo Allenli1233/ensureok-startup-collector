@@ -17,6 +17,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      // 方案生成后端(@ensureok/server,默认 localhost:8787);免 CORS
+      '/agent': {
+        target: process.env.AGENT_TARGET || 'http://localhost:8787',
+        changeOrigin: true,
+      },
     },
   },
 });
