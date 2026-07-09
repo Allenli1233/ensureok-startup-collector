@@ -1,4 +1,5 @@
 import { agentUrl } from '../api/config';
+import type { ProposalResult } from './provider';
 import type { Proposal, ProposalRequest } from './types';
 
 const POLL_MS = 2500;
@@ -16,7 +17,7 @@ interface PollResp {
 }
 
 /** 真实提供方(默认):POST 建任务 → 轮询到 ready。dev 走 /agent(vite proxy → 后端)。 */
-export async function httpRequest(req: ProposalRequest): Promise<Proposal> {
+export async function httpRequest(req: ProposalRequest): Promise<ProposalResult> {
   const create = await fetch(agentUrl('/agent/proposals'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -31,7 +32,8 @@ export async function httpRequest(req: ProposalRequest): Promise<Proposal> {
     await sleep(POLL_MS);
     const r = await fetch(agentUrl(`/agent/proposals/${taskId}`));
     const d = (await r.json()) as PollResp;
-    if (d.status === 'ready' && d.proposal) return d.proposal;
+    // taskId 一并返回,供报告解读 chat 复用(POST /agent/proposals/:id/chat)。
+    if (d.status === 'ready' && d.proposal) return { proposal: d.proposal, taskId };
     if (d.status === 'error') throw new Error(d.error?.message ?? '方案生成失败');
     if (Date.now() > deadline) throw new Error('方案生成超时,请稍后重试');
   }
