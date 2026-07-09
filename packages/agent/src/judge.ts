@@ -84,22 +84,38 @@ function clamp05(v: unknown): number {
 function asStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
+/** 提取第一个"括号配平"的 JSON 对象(避免贪婪 {…} 把示例+真身或尾随散文的花括号并成畸形串) */
+function firstBalancedObject(s: string): string | null {
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return s.slice(start, i + 1);
+  }
+  return null;
+}
+
 function parseJson(s: string): Record<string, unknown> | null {
-  // judge 模型稳定用 ```json 围栏包裹 → 先去围栏再解析(比贪婪 {…} 更稳,避免抓到尾随散文的花括号)
+  // judge 模型稳定用 ```json 围栏包裹 → 先去围栏
   const stripped = s.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
-  for (const candidate of [stripped, s]) {
+  const balanced = firstBalancedObject(stripped);
+  for (const candidate of [stripped, balanced, s]) {
+    if (!candidate) continue;
     try {
       return JSON.parse(candidate) as Record<string, unknown>;
     } catch {
-      /* try 提取 */
-    }
-  }
-  const m = stripped.match(/\{[\s\S]*\}/);
-  if (m) {
-    try {
-      return JSON.parse(m[0]) as Record<string, unknown>;
-    } catch {
-      /* ignore */
+      /* 下一个候选 */
     }
   }
   return null;
@@ -109,15 +125,16 @@ const VALID_STATUS = new Set(['entailed', 'not-supported', 'contradicted']);
 function parseClaims(v: unknown): ClaimJudgement[] {
   if (!Array.isArray(v)) return [];
   const out: ClaimJudgement[] = [];
-  for (const c of v) {
-    if (!c || typeof c !== 'object') continue;
+  v.forEach((c, pos) => {
+    if (!c || typeof c !== 'object') return;
     const o = c as Record<string, unknown>;
-    const index = Number(o.index);
-    if (!Number.isInteger(index)) continue;
+    const idx = Number(o.index);
+    // 键漂移(idx/序号 而非 index)→ 用数组位置兜底,避免整条 claim 被丢弃后忠实度悄悄默认 entailed(fail-unsafe)
+    const index = Number.isInteger(idx) ? idx : pos;
     const status = VALID_STATUS.has(asStr(o.status)) ? (asStr(o.status) as ClaimJudgement['status']) : 'not-supported';
     const rebindTo = typeof o.rebindTo === 'string' && o.rebindTo ? o.rebindTo : null;
     out.push({ index, status, rebindTo, note: asStr(o.note) });
-  }
+  });
   return out;
 }
 function parseRevisions(v: unknown): RevisionInstruction[] {
