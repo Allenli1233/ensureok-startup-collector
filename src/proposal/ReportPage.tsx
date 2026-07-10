@@ -19,7 +19,6 @@ import { BlockDetailBody } from './BlockDetail';
 import { BlurInText } from './BlurInText';
 import { NumberTicker } from './NumberTicker';
 import { ReportChatPanel } from './ReportChat';
-import { RippleField } from './RippleField';
 import './report.css';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const; // 强 ease-out(emil:内建太弱)
@@ -297,8 +296,8 @@ function ReportBody({
             if (selected === c.item.lineId) return null;
             return <BentoCell key={c.item.lineId} c={c} reduce={reduce} onSelect={onSelect} />;
           })}
-          {/* 水波纹叠在方块之上(pointer-events:none,不挡点击):鼠标划过方块即有波纹,缝隙统一暗底 */}
-          <RippleField />
+          {/* 水波纹暂时摘除:WebGL canvas 在部分显卡上渲染成不透明白色、盖住方块。
+              待换成更稳的实现(CSS 或调好的 canvas)再加回。 */}
         </div>
 
         <AnimatePresence>
