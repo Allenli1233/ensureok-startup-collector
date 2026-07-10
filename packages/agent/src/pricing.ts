@@ -22,8 +22,12 @@ export function pricingFromComputed(out: ComputePricingOutput): PricingHint {
       unavailable: true,
     };
   }
+  const range =
+    out.premiumMinCny === out.premiumMaxCny
+      ? `约 ${fmtCny(out.premiumMinCny)}`
+      : `约 ${fmtCny(out.premiumMinCny)}–${fmtCny(out.premiumMaxCny)}`;
   return {
-    display: `参考年保费约 ${fmtCny(out.premiumMinCny)}–${fmtCny(out.premiumMaxCny)}(已隔离保费/排除保额,精确价见下钻)`,
+    display: `参考年保费${range}(已隔离保费/排除保额,精确价见下钻)`,
     minCny: out.premiumMinCny,
     maxCny: out.premiumMaxCny,
     source: 'product_db',

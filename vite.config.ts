@@ -6,8 +6,11 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   // vitest:本站自测只扫应用自己的 tests/,不误扫 packages/*(各 workspace 自跑自测)。
+  // jsdom 环境 + setup(补 matchMedia/IntersectionObserver/ResizeObserver)以支持组件渲染测试。
   test: {
     include: ['tests/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
   },
   server: {
     port: 5273,

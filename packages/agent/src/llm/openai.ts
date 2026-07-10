@@ -51,9 +51,10 @@ export class OpenAIChatProvider implements ChatProvider {
 
   private async rawComplete(messages: ChatMessage[], opts: ChatCompleteOptions): Promise<AssistantTurn> {
     const body = JSON.stringify({
-      model: this.model,
+      model: opts.model ?? this.model,
       messages,
       temperature: opts.temperature ?? 0.2,
+      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
       ...(opts.tools?.length ? { tools: opts.tools } : {}),
       ...(opts.toolChoice ? { tool_choice: opts.toolChoice } : {}),
     });

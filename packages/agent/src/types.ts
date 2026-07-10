@@ -28,6 +28,18 @@ export interface ProposalRequest {
     funding?: string;
     hasPatent?: boolean;
     overseasCountries?: string[];
+    // ── 稳定结构化信号(确定性打分用;不进 LLM 事实推断、无价格)──
+    industryValue?: 'saas' | 'ai' | 'hardware' | 'fintech' | 'health' | 'ecom' | 'other';
+    /** 'lt10' | '10to30' | '31to100' | 'gt100'(宽松 string,未知落 0) */
+    headcountValue?: string;
+    /** 'none' | 'angel' | 'pre_a' | 'b_plus' | 'ipo'(宽松 string,未知落 0) */
+    fundingValue?: string;
+    /** b2 === 'yes':有硬件/实体产品 */
+    hasPhysicalProduct?: boolean;
+    /** b0 === 'yes':有海外客户/订单 */
+    overseas?: boolean;
+    /** c1 === 'yes':处理用户敏感数据 */
+    dataSensitive?: boolean;
   };
   diagnosis: CollectorDiagnosis;
 }

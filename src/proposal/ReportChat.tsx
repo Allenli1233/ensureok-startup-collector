@@ -1,34 +1,39 @@
 /**
- * ReportChat —— 报告解读对话(总览 scope='report' / 险种详情 scope=lineId 两处复用)。
- *
- * 呈对话流,但每问独立(后端单轮无状态,D2)。展示 loading / 婉拒固定话术 / 免责串;
- * 缺后端或网络错误 → 优雅降级为「暂不可用」,不崩。
+ * 报告解读 Chat 面板(总览 scope='report' / 险种 scope=lineId 两处复用)。
+ * 单轮无状态(后端不记历史);答不出的固定婉拒、免责、暂不可用都如实呈现。
+ * 动画:消息以强 ease-out 进场;等待用打字点。尊重 prefers-reduced-motion。
  */
-import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { useEffect, useRef, useState } from 'react';
 import { useReportChat, type ChatScope } from './useReportChat';
 
-export function ReportChat({
+const EASE_OUT = [0.22, 1, 0.36, 1] as const;
+const SUGGESTIONS_REPORT = ['为什么是这几个险种?', '哪个最该先处理?'];
+const SUGGESTIONS_LINE = ['这个险种主要保什么?', '为什么推荐它?'];
+
+export function ReportChatPanel({
   taskId,
   scope,
   title,
-  intro,
-  suggestions,
+  onClose,
 }: {
-  taskId: string | undefined;
+  taskId?: string;
   scope: ChatScope;
   title: string;
-  intro: string;
-  suggestions?: string[];
+  onClose?: () => void;
 }): React.ReactElement {
+  const reduce = useReducedMotion();
   const { messages, loading, ask } = useReportChat(taskId, scope);
   const [draft, setDraft] = useState('');
-  const listRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // 新消息 / loading 变化时滚到底
   useEffect(() => {
-    const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, loading]);
+    inputRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
+  }, [messages, loading, reduce]);
 
   const send = (text: string) => {
     const q = text.trim();
@@ -37,188 +42,83 @@ export function ReportChat({
     void ask(q);
   };
 
+  const suggestions = scope === 'report' ? SUGGESTIONS_REPORT : SUGGESTIONS_LINE;
+
   return (
-    <div style={styles.wrap}>
-      <div style={styles.head}>
-        <span style={styles.title}>{title}</span>
-        <span style={styles.hint}>每问独立解读</span>
+    <section className="rc" aria-label={title}>
+      <div className="rc-head">
+        <span className="rc-title">{title}</span>
+        {onClose && (
+          <button type="button" className="rc-x" onClick={onClose} aria-label="收起">
+            收起
+          </button>
+        )}
       </div>
 
-      <div ref={listRef} style={styles.list} aria-live="polite">
+      <div className="rc-stream" ref={scrollRef} aria-live="polite">
         {messages.length === 0 && (
-          <div style={styles.empty}>
-            <p style={styles.introP}>{intro}</p>
-            {suggestions && suggestions.length > 0 && (
-              <div style={styles.suggestRow}>
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    style={styles.suggestChip}
-                    onClick={() => send(s)}
-                    disabled={loading}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="rc-intro">
+            <p>问一句,帮你读懂这份报告。只解读报告与条款,不做投保建议、不涉及价格。</p>
+            <div className="rc-chips">
+              {suggestions.map((s) => (
+                <button key={s} type="button" className="rc-chip" onClick={() => send(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         )}
-
-        {messages.map((m) =>
-          m.role === 'user' ? (
-            <div key={m.id} style={styles.userRow}>
-              <div style={styles.userBubble}>{m.text}</div>
-            </div>
-          ) : (
-            <div key={m.id} style={styles.aiRow}>
-              <div style={{ ...styles.aiBubble, ...(m.unavailable ? styles.aiBubbleMuted : {}) }}>{m.text}</div>
-              {m.disclaimer && <div style={styles.aiDisclaimer}>{m.disclaimer}</div>}
-            </div>
-          ),
-        )}
-
+        <AnimatePresence initial={false}>
+          {messages.map((m) => (
+            <motion.div
+              key={m.id}
+              className={`rc-msg rc-${m.role}${m.unavailable || m.refused ? ' rc-soft' : ''}`}
+              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: reduce ? 0.15 : 0.24, ease: EASE_OUT }}
+            >
+              <p className="rc-text">{m.text}</p>
+              {m.disclaimer ? <p className="rc-disc">{m.disclaimer}</p> : null}
+            </motion.div>
+          ))}
+        </AnimatePresence>
         {loading && (
-          <div style={styles.aiRow}>
-            <div style={{ ...styles.aiBubble, ...styles.typing }} aria-label="正在解读…">
-              <span className="rv-dot" style={styles.dot} />
-              <span className="rv-dot" style={{ ...styles.dot, animationDelay: '150ms' }} />
-              <span className="rv-dot" style={{ ...styles.dot, animationDelay: '300ms' }} />
-            </div>
+          <div className="rc-msg rc-assistant">
+            <span className={`rc-typing${reduce ? ' rc-typing-static' : ''}`} aria-label="思考中">
+              <span />
+              <span />
+              <span />
+            </span>
           </div>
         )}
       </div>
 
       <form
-        style={styles.inputRow}
+        className="rc-form"
         onSubmit={(e) => {
           e.preventDefault();
           send(draft);
         }}
       >
-        <input
-          style={styles.input}
+        <textarea
+          ref={inputRef}
+          className="rc-input"
+          rows={1}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="就这份报告提个问题…"
-          aria-label="向报告解读员提问"
-          enterKeyHint="send"
-          spellCheck={false}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              send(draft);
+            }
+          }}
+          placeholder="问关于这份报告的问题…"
+          aria-label="输入问题"
         />
-        <button type="submit" style={styles.sendBtn} disabled={loading || !draft.trim()} aria-label="发送">
+        <button type="submit" className="rc-send" disabled={loading || !draft.trim()} aria-label="发送">
           发送
         </button>
       </form>
-    </div>
+    </section>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  wrap: {
-    display: 'flex',
-    flexDirection: 'column',
-    background: 'var(--surface)',
-    border: '1px solid var(--border-strong)',
-    borderRadius: 14,
-    overflow: 'hidden',
-    minHeight: 0,
-  },
-  head: {
-    display: 'flex',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    padding: '11px 14px',
-    borderBottom: '1px solid var(--border)',
-    background: 'var(--surface-soft)',
-  },
-  title: { fontSize: 13, fontWeight: 800, color: 'var(--ink-900)' },
-  hint: { fontSize: 11, color: 'var(--fg3)' },
-  list: {
-    flex: 1,
-    minHeight: 120,
-    maxHeight: 340,
-    overflowY: 'auto',
-    padding: '12px 14px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-  },
-  empty: { margin: 'auto 0' },
-  introP: { fontSize: 12.5, lineHeight: 1.7, color: 'var(--fg3)', margin: '0 0 10px' },
-  suggestRow: { display: 'flex', flexWrap: 'wrap', gap: 6 },
-  suggestChip: {
-    padding: '6px 11px',
-    fontSize: 12,
-    fontWeight: 600,
-    color: 'var(--ink-700)',
-    background: 'var(--surface-soft)',
-    border: '1px solid var(--border-strong)',
-    borderRadius: 999,
-    cursor: 'pointer',
-    textAlign: 'left',
-  },
-  userRow: { display: 'flex', justifyContent: 'flex-end' },
-  userBubble: {
-    maxWidth: '82%',
-    padding: '8px 12px',
-    fontSize: 13,
-    lineHeight: 1.65,
-    color: 'var(--ui-primary-fg)',
-    background: 'var(--ui-primary)',
-    borderRadius: '13px 13px 3px 13px',
-  },
-  aiRow: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 },
-  aiBubble: {
-    maxWidth: '92%',
-    padding: '9px 13px',
-    fontSize: 13,
-    lineHeight: 1.7,
-    color: 'var(--ink-800)',
-    background: 'var(--surface-soft)',
-    border: '1px solid var(--border)',
-    borderRadius: '13px 13px 13px 3px',
-    whiteSpace: 'pre-wrap',
-  },
-  aiBubbleMuted: { color: 'var(--fg3)', fontStyle: 'italic' },
-  aiDisclaimer: { fontSize: 10.5, lineHeight: 1.55, color: 'var(--fg3)', maxWidth: '92%', padding: '0 4px' },
-  typing: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '11px 13px' },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-    background: 'var(--clay-500)',
-    display: 'inline-block',
-    animation: 'rvTyping 1s ease-in-out infinite',
-  },
-  inputRow: {
-    display: 'flex',
-    gap: 8,
-    padding: '10px 12px',
-    borderTop: '1px solid var(--border)',
-    background: 'var(--surface)',
-  },
-  input: {
-    flex: 1,
-    minWidth: 0,
-    padding: '9px 12px',
-    fontSize: 13,
-    color: 'var(--fg1)',
-    background: 'var(--surface)',
-    border: '1px solid var(--border-strong)',
-    borderRadius: 10,
-    outline: 'none',
-    fontFamily: 'var(--font-sans)',
-  },
-  sendBtn: {
-    flexShrink: 0,
-    padding: '9px 16px',
-    fontSize: 13,
-    fontWeight: 700,
-    color: 'var(--ui-primary-fg)',
-    background: 'var(--ui-primary)',
-    border: 'none',
-    borderRadius: 10,
-    cursor: 'pointer',
-  },
-};

@@ -65,7 +65,7 @@ const DISCLAIMER =
  * 价格/保司仍走确定性组装,LLM 不碰数字。
  */
 export async function generateProposal(req: ProposalRequest, deps: GenerateDeps): Promise<Proposal> {
-  const planned = planLines(req.diagnosis.findings);
+  const planned = planLines(req.diagnosis.findings, req.profile);
   const clientSummary = buildClientSummary(req);
   const loopOn = Boolean(deps.judge && deps.loop?.enabled);
   const budget = { used: 0, max: deps.loop?.callBudget ?? Number.POSITIVE_INFINITY };
@@ -80,7 +80,7 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     deps.onProgress?.({ stage, total: planned.length, done: progress.filter((x) => x.status === 'done').length, perItem: progress.map((x) => ({ ...x })) });
   emit('planning');
 
-  const items = await mapWithConcurrency(planned, deps.concurrency ?? 5, async (p, idx): Promise<ProposalItem> => {
+  const items = await mapWithConcurrency(planned, deps.concurrency ?? 8, async (p, idx): Promise<ProposalItem> => {
     const cat = deps.catalogs.get(p.lineId);
     const lineName = cat?.lineName ?? LINE_BY_ID.get(p.lineId)?.lineName ?? p.lineId;
     const lineData = cat ? extractLineData(cat) : null;
@@ -177,7 +177,10 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     let degraded = false;
     let degradedReason: string | undefined;
 
-    if (loopOn && deps.judge) {
+    // 对抗 loop 只跑在 mandatory/high 线(强敞口,值得反复打磨);advice 线(候选池补线,数量多)
+    // 走单次生成即可——大幅提速。合规终局闸门(步骤4)对所有线照常执行,红线不漏。
+    const heavyLoop = p.urgency === 'mandatory' || p.urgency === 'high';
+    if (loopOn && deps.judge && heavyLoop) {
       const maxRev = deps.loop?.maxRevisions ?? 2;
       const cards: ScoreCard[] = [];
       let card: ScoreCard | undefined;

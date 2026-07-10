@@ -56,7 +56,8 @@ export async function answerQuestion(chat: ChatProvider, question: string, scope
         { role: 'system', content: SYSTEM },
         { role: 'user', content: `<报告>\n${ctx}\n</报告>\n\n用户问题:${question}\n\n只依据上面回答;超范围就只回固定婉拒。简短。` },
       ],
-      { temperature: 0.2 },
+      // 答复本就短(2-4 句),设小 max_tokens 让模型更早停 → 明显提速
+      { temperature: 0.2, maxTokens: 320 },
     );
   } catch {
     return { answer: REFUSAL, refused: true, disclaimer: DISCLAIMER };

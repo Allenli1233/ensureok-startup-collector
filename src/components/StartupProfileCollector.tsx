@@ -24,8 +24,8 @@ import { LogoMark } from './LogoMark';
 import { track } from '../api/tracker';
 import { useProposal } from '../proposal/useProposal';
 import { buildProposalRequest } from '../proposal/buildRequest';
-import { ReportView } from '../proposal/ReportView';
-import type { ProposalRequest } from '../proposal/types';
+import { AnimatePresence } from 'motion/react';
+import { ReportPage } from '../proposal/ReportPage';
 import {
   OVERSEAS_COUNTRIES,
   COLLECTOR_PRIVACY_NOTICE,
@@ -69,19 +69,10 @@ export function StartupProfileCollector() {
   const previewAnchorRef = useRef<HTMLDivElement | null>(null);
   const contactCardRef = useRef<HTMLDivElement | null>(null);
 
-  // 方案生成(提交成功后异步:后端 Agent 结合诊断+RAG+产品库生成一份风险保障方向说明)
+  // 方案生成(异步:后端 Agent 结合诊断+RAG+产品库生成)
   const proposal = useProposal();
-  // 调参重生成:上一版险种名(用于生成后对比新增/移除)
-  const [prevLineNames, setPrevLineNames] = useState<string[] | undefined>(undefined);
-
-  // 调整画像重新生成 —— 复用既有全量重生成路径(buildProposalRequest + proposal.start)。
-  // 注:status 转 loading 会卸载 ProposalView,其本地视图态(卡片/对比表、客户/顾问版、展开、筛选)刻意重置为默认——
-  // 重生成即"全新一版",不保留上一版的浏览态;若日后要保留,把这些 state 提升到父层。
-  const handleRegenerate = (profile: ProposalRequest['profile']) => {
-    const base = buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis });
-    if (proposal.proposal) setPrevLineNames(proposal.proposal.items.map((i) => i.lineName));
-    void proposal.start({ ...base, profile });
-  };
+  // 体检报告全屏页开关(进入即换页,电影级过渡)
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     track('startup_profile.page_view');
@@ -126,14 +117,13 @@ export function StartupProfileCollector() {
 
   // 「领取完整体检报告」:直接触发生成 + 进报告,不留资、不必填联系方式(D3)。
   // 报告即交付;可选的中性联系入口在报告内(PR-B)。合规免责(出单由持牌经纪)在报告底部固定保留。
+  const startGeneration = () =>
+    void proposal.start(buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }));
+
   const handleGetReport = () => {
-    track('startup_profile.report_viewed', {
-      lines: hitLines(diagnosis),
-      mandatory: diagnosis.mandatoryCount,
-    });
-    void proposal.start(
-      buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }),
-    );
+    track('startup_profile.report_viewed', { lines: hitLines(diagnosis), mandatory: diagnosis.mandatoryCount });
+    setReportOpen(true);
+    if (proposal.status === 'idle' || proposal.status === 'error') startGeneration();
   };
 
   // 按 section 分组渲染(保持 COLLECTOR_QUESTIONS 声明顺序)
@@ -339,54 +329,24 @@ export function StartupProfileCollector() {
           <p className="no-print" style={styles.disclaimer}>{COLLECTOR_DISCLAIMER}</p>
 
           <div style={styles.ctaSection}>
-            {proposal.status !== 'idle' ? (
-              <>
-                {proposal.status === 'loading' && (
-                  <div style={{ ...styles.formHint, marginTop: 16 }}>
-                    正在为你生成初步保障方向说明(结合产品库与条款检索,约需 1–3 分钟,请勿关闭页面)…
-                  </div>
-                )}
-                {proposal.status === 'error' && (
-                  <div style={{ marginTop: 16 }}>
-                    <div style={styles.errorText} role="alert">
-                      方案生成失败:{proposal.error}
-                    </div>
-                    <button
-                      type="button"
-                      style={styles.primaryBtn}
-                      onClick={() =>
-                        void proposal.start(
-                          buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }),
-                        )
-                      }
-                    >
-                      重试生成方案
-                    </button>
-                  </div>
-                )}
-                {proposal.status === 'ready' && proposal.proposal && (
-                  <ReportView
-                    proposal={proposal.proposal}
-                    taskId={proposal.taskId}
-                    onRegenerate={handleRegenerate}
-                    currentProfile={
-                      buildProposalRequest({ company: company.trim(), answers, industryOther, diagnosis }).profile
-                    }
-                    previousLineNames={prevLineNames}
-                  />
-                )}
-              </>
-            ) : (
-              <>
-                <button type="button" style={styles.primaryBtn} onClick={handleGetReport}>
-                  领取完整体检报告
-                </button>
-                <div style={styles.formHint}>基于你提交的画像与产品库、条款检索,生成一份可交互的保障体检报告。</div>
-              </>
-            )}
+            <button type="button" style={styles.primaryBtn} onClick={handleGetReport}>
+              {proposal.status === 'loading' ? '正在组装报告…' : proposal.status === 'ready' ? '打开体检报告' : '领取完整体检报告'}
+            </button>
+            <div style={styles.formHint}>基于你提交的画像与产品库、条款检索,生成一份可交互的保障体检报告。</div>
           </div>
         </div>
       )}
+
+      {/* 体检报告全屏页(进入即换页,电影级过渡)—— 覆盖在采集器之上 */}
+      <AnimatePresence>
+        {reportOpen && (
+          <ReportPage
+            state={{ status: proposal.status, proposal: proposal.proposal, taskId: proposal.taskId, error: proposal.error }}
+            onClose={() => setReportOpen(false)}
+            onRetry={startGeneration}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

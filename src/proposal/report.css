@@ -1,295 +1,896 @@
-/**
- * 报告(ReportView)· treemap 方块 + 动画 + 打印样式。
- * 纯 CSS transform/opacity 动画,尊重 prefers-reduced-motion;零动画依赖。
- * 屏幕看 treemap(暖黑),打印走结构化附录(暖纸,信息完整)。
- */
+/* ============================================================================
+ * 保障体检报告「体检舱」样式(design-taste-frontend + emil-design-eng）
+ * 暖调深色 chamber · 强 ease-out 自定义缓动 · 硬件加速仅 transform/opacity · 尊重 reduced-motion
+ * 无保费数字进入方块/chat;合规免责固定可见。
+ * ==========================================================================*/
 
-/* 强 ease-out(编辑级手感,比内置缓动更有意图) */
 :root {
-  --rv-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --rp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --rp-ink: #231f1b;
+  --rp-ink-2: #2b2621;
+  --rp-paper: #fbf6f0;
+  --rp-line: rgba(251, 246, 240, 0.12);
 }
 
-/* ── 屏幕 / 打印分流 ── */
-.rv-print {
-  display: none;
-}
-.rv-screen {
-  display: block;
-}
-
-/* 报告屏幕视图打破 640 窄栏居中占宽;防其在滚动根产生横向滚动条 */
-.app-scroll-root {
+/* ── 全屏幕遮罩(报告作为独立页覆盖采集器）── */
+.rp-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  color-scheme: dark;
+  background: var(--rp-ink);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ── treemap 画布(暖黑) ── */
-.rv-canvas {
+/* 视差背景光晕层:随滚动以更慢速率位移(在 rp-scrim 内绝对定位,transform 由 Motion 驱动) */
+.rp-parallax {
+  position: absolute;
+  inset: -8% 0 auto 0;
+  height: 150%;
+  z-index: 0;
+  pointer-events: none;
+  will-change: transform;
+  background:
+    radial-gradient(120% 70% at 15% 0%, rgba(172, 75, 46, 0.2), transparent 52%),
+    radial-gradient(110% 66% at 100% 72%, rgba(104, 98, 90, 0.18), transparent 58%);
+}
+
+.rp-chamber {
+  position: relative;
+  z-index: 1;
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  padding: clamp(18px, 3vw, 40px) clamp(16px, 3.4vw, 44px) 64px;
+  box-sizing: border-box;
+  color: var(--rp-paper);
+  font-family: var(--font-sans);
+  transform-origin: 50% 30%;
+}
+
+/* ── 头部 ── */
+.rp-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: clamp(16px, 2.4vw, 30px);
+}
+.rp-header-l {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.rp-kicker {
+  font-size: clamp(20px, 2.6vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.rp-company {
+  font-size: 13px;
+  color: rgba(251, 246, 240, 0.62);
+}
+.rp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.rp-close {
+  flex-shrink: 0;
+  appearance: none;
+  border: 1px solid var(--rp-line);
+  background: rgba(251, 246, 240, 0.06);
+  color: var(--rp-paper);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 160ms var(--rp-ease), background 200ms ease, border-color 200ms ease;
+}
+.rp-close:active {
+  transform: scale(0.96);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rp-close:hover {
+    background: rgba(251, 246, 240, 0.12);
+    border-color: rgba(251, 246, 240, 0.24);
+  }
+}
+
+/* ── 生成中 / 错误态 ── */
+.rp-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 56vh;
+  gap: 14px;
+}
+.rp-scan {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rp-scan span {
+  width: 10px;
+  height: 44px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #c66a44, #7a5a35);
+  animation: rpScan 1.1s var(--rp-ease) infinite;
+}
+.rp-scan span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.rp-scan span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes rpScan {
+  0%, 100% {
+    transform: scaleY(0.5);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+.rp-scan-static span {
+  animation: none;
+  opacity: 0.8;
+}
+.rp-loading-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.rp-loading-sub {
+  font-size: 14px;
+  color: rgba(251, 246, 240, 0.66);
+  max-width: 42ch;
+  line-height: 1.6;
+  margin: 0;
+}
+.rp-retry {
+  margin-top: 8px;
+  appearance: none;
+  border: none;
+  background: var(--rp-paper);
+  color: #2a2622;
+  font-weight: 700;
+  padding: 11px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 160ms var(--rp-ease);
+}
+.rp-retry:active {
+  transform: scale(0.97);
+}
+
+/* ── 主体 ── */
+.rp-summary {
+  font-size: 14px;
+  color: rgba(251, 246, 240, 0.7);
+  letter-spacing: 0.01em;
+  margin-bottom: clamp(14px, 2vw, 22px);
+}
+
+/* ── 组计数 chip 一排(强制 N · 高优先 N · 建议 N,复用固定文案;计数用 NumberTicker)── */
+.rp-groupbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: clamp(12px, 1.8vw, 18px);
+}
+.rp-groupchip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--rp-paper);
+  background: rgba(251, 246, 240, 0.07);
+  border: 1px solid var(--rp-line);
+  border-radius: 999px;
+}
+.rp-groupchip-n {
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.rp-groupchip-total {
+  background: rgba(251, 246, 240, 0.12);
+}
+.rp-groupchip-mandatory {
+  border-color: rgba(172, 75, 46, 0.55);
+}
+.rp-groupchip-high {
+  border-color: rgba(133, 96, 49, 0.55);
+}
+
+/* ── Bento 密铺:squarified 绝对定位,100% 铺满、无空洞;高度由 JS 计算写内联 ── */
+.rp-bento {
   position: relative;
   width: 100%;
-  border-radius: 18px;
+  border-radius: 16px;
   overflow: hidden;
-  background:
-    radial-gradient(120% 90% at 20% 0%, rgba(184, 92, 60, 0.16), transparent 55%),
-    radial-gradient(90% 80% at 100% 100%, rgba(110, 104, 92, 0.14), transparent 60%),
-    var(--ink-900);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 50px rgba(30, 18, 10, 0.28);
+  background: var(--rp-ink); /* 缝隙统一暗底,杜绝白色留白 */
 }
 
-/* 组标签(浮在各紧迫分层区左上角)。不透明 + 高 z-index + 不吃指针:
-   稳定压在方块(含 hover 态 z:3)之上,不再与最大块标题糊成一团。 */
-.rv-group-label {
+/* WebGL 水波纹 canvas:叠在方块之上(pointer-events:none),鼠标划过方块即有波纹 */
+.rp-ripple-canvas {
   position: absolute;
-  z-index: 5;
+  inset: 0;
+  z-index: 6;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: #fbf1e9;
-  background: rgba(26, 19, 15, 0.94);
-  box-shadow: 0 2px 8px rgba(10, 6, 3, 0.4);
-  border: 1px solid rgba(251, 241, 233, 0.18);
-  border-radius: 999px;
-  pointer-events: none;
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
 }
 
-/* 报告内输入框:内联 outline:none 的键盘可达补偿(:focus-visible 环) */
-.proposal-print input:focus-visible {
-  outline: 2px solid var(--clay-500);
-  outline-offset: 1px;
-  border-color: var(--clay-500);
-}
-
-/* ── 险种方块 ── */
-.rv-block {
+/* ── Bento 单格(绝对定位,left/top/width/height 由 JS 内联)── */
+.rp-cell {
   position: absolute;
+  z-index: 1;
+  overflow: hidden;
+  appearance: none;
   border: none;
   touch-action: manipulation;
-  border-radius: 12px;
-  padding: 12px 13px;
+  min-width: 0;
+  border-radius: 16px;
+  padding: calc(13px * min(var(--rp-s, 1), 1.6)) calc(15px * min(var(--rp-s, 1), 1.6));
   text-align: left;
-  color: #fbf6f0;
+  color: var(--rp-paper);
   cursor: pointer;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  gap: calc(8px * min(var(--rp-s, 1), 1.5));
   font-family: var(--font-sans);
-  /* 进场初始态:轻微缩小 + 下沉 + 透明 */
-  opacity: 0;
-  transform: scale(0.94) translateY(8px);
-  transition:
-    opacity 520ms var(--rv-ease-out),
-    transform 520ms var(--rv-ease-out),
-    box-shadow 200ms var(--rv-ease-out),
-    filter 200ms var(--rv-ease-out);
+  transition: filter 220ms var(--rp-ease), box-shadow 220ms var(--rp-ease);
 }
-/* will-change 只在进场未完成时挂,进场后撤掉(避免每块永久占合成层) */
-.rv-canvas:not([data-entered='true']) .rv-block {
-  will-change: transform, opacity;
-}
-/* 有待核角标时,标题首行右侧让出角标宽度(避免遮住名字);小块角标改成不占位的小圆点 */
-.rv-block:has(.rv-block-flag) .rv-block-name {
-  padding-right: 42px;
-}
-.rv-block-sm:has(.rv-block-flag) .rv-block-name {
-  padding-right: 14px;
-}
-.rv-block-sm .rv-block-flag {
-  padding: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  font-size: 0;
-  overflow: hidden;
-  top: 7px;
-  right: 7px;
-}
-/* 方块内顶部高光(玻璃质感) */
-.rv-block::before {
+.rp-cell::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 42%);
+  background: linear-gradient(157deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 44%);
   pointer-events: none;
 }
-/* 进场(画布 mounted 后,按权重错峰 transition-delay 由内联提供) */
-.rv-canvas[data-entered='true'] .rv-block {
-  opacity: 1;
-  transform: none;
-}
-
-.rv-block:focus-visible {
-  outline: 2px solid #fbf1e9;
+.rp-cell:focus-visible {
+  outline: 2px solid var(--rp-paper);
   outline-offset: 2px;
 }
-.rv-block:active {
-  transform: scale(0.985);
-  transition-duration: 120ms;
+.rp-cell:active {
+  filter: brightness(0.97);
 }
-
-/* hover:微抬升 + 增强光晕(仅精确指针设备) */
 @media (hover: hover) and (pointer: fine) {
-  .rv-canvas[data-entered='true'] .rv-block:hover {
-    transform: translateY(-3px);
-    filter: brightness(1.05);
-    z-index: 3;
+  .rp-cell:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 16px 40px rgba(20, 12, 8, 0.42);
   }
 }
-
-.rv-block-name {
-  font-size: 14px;
+.rp-block-inner {
+  position: relative;
+  z-index: 2; /* 文本盖在波纹之上 */
+  display: flex;
+  flex-direction: column;
+  gap: calc(7px * min(var(--rp-s, 1), 1.5));
+  min-height: 0;
+  min-width: 0;
+}
+.rd-name {
+  text-wrap: balance;
+}
+.rp-block-score,
+.rc-user {
+  font-variant-numeric: tabular-nums;
+}
+.rp-block-name {
+  font-size: calc(15px * var(--rp-s, 1)); /* 同比例放大:块越大字越大 */
   font-weight: 800;
-  line-height: 1.3;
+  line-height: 1.24;
   letter-spacing: -0.01em;
+  text-shadow: 0 1px 2px rgba(20, 12, 8, 0.3);
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  text-shadow: 0 1px 2px rgba(20, 12, 8, 0.28);
 }
-.rv-block-meta {
+.rp-block-snippet {
+  font-size: calc(12px * min(var(--rp-s, 1), 1.7));
+  line-height: 1.5;
+  color: rgba(255, 253, 250, 0.9);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: var(--rp-snip, 3); /* 块越大显示越多行 */
+  -webkit-box-orient: vertical;
+}
+.rp-block-foot {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  font-size: 10.5px;
+  gap: 8px;
+  font-size: calc(11px * min(var(--rp-s, 1), 1.3));
   font-weight: 600;
-  color: rgba(255, 253, 250, 0.95);
+  color: rgba(255, 253, 250, 0.94);
 }
-.rv-block-tier {
-  padding: 1px 7px;
+.rp-block-tier {
+  padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(20, 12, 8, 0.24);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(20, 12, 8, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   white-space: nowrap;
 }
-/* 降级 / 待核角标(低调,不改主色、不报警) */
-.rv-block-flag {
+.rp-block-score {
+  margin-left: auto;
+  opacity: 0.9;
+}
+.rp-flag {
   position: absolute;
-  top: 8px;
-  right: 9px;
+  top: 9px;
+  right: 10px;
+  z-index: 2;
   font-size: 10px;
   font-weight: 700;
-  color: rgba(255, 253, 250, 0.9);
-  background: rgba(20, 12, 8, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 253, 250, 0.94);
+  background: rgba(20, 12, 8, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 999px;
   padding: 1px 7px;
-  pointer-events: none;
 }
-/* 小块:隐藏 tier 文字,只留名字(min-floor 保证可读) */
-.rv-block.rv-block-sm {
-  padding: 9px 10px;
-}
-.rv-block.rv-block-sm .rv-block-meta {
-  margin-top: 5px;
-}
-/* 小块:名字缩到 2 行 + 略小字号,配 min-floor 干净收进,不再中途切字 */
-.rv-block-sm .rv-block-name {
+.rp-cell-sm .rp-block-name {
   font-size: 12.5px;
   line-height: 1.24;
-  -webkit-line-clamp: 2;
+}
+.rp-cell-sm:has(.rp-flag) .rp-block-name {
+  padding-right: 34px;
+}
+.rp-cell-sm .rp-flag {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  font-size: 0;
+  overflow: hidden;
 }
 
-/* ── 下钻详情 zoom 过渡 ── */
-.rv-detail-mask {
-  animation: rvMaskIn 200ms var(--rv-ease-out);
+.rp-hint {
+  margin: 16px 0 0;
+  font-size: 12.5px;
+  color: rgba(251, 246, 240, 0.5);
 }
-.rv-detail-panel {
-  animation: rvPanelIn 240ms var(--rv-ease-out);
-}
-@keyframes rvMaskIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes rvPanelIn {
-  from {
-    opacity: 0;
-    transform: scale(0.92) translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+.rp-disclaimer {
+  margin: 26px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--rp-line);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: rgba(251, 246, 240, 0.5);
 }
 
-/* chat「正在解读…」三点 */
-@keyframes rvTyping {
-  0%,
-  60%,
-  100% {
+/* ── 下钻详情(共享元素 zoom 进来的面板）── */
+.rp-detail {
+  position: fixed;
+  inset: clamp(16px, 4vh, 48px) clamp(12px, 6vw, 90px);
+  z-index: 1010;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 40px 120px rgba(10, 6, 3, 0.6);
+  display: flex;
+}
+/* 详情内容层:emil 流体收束(scale/blur),外层 layoutId 负责位置/尺寸 morph */
+.rd-fluid {
+  display: flex;
+  width: 100%;
+  transform-origin: 50% 42%;
+}
+.rd {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: rgba(24, 19, 15, 0.28);
+  outline: none;
+}
+.rd-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: clamp(18px, 2.4vw, 28px) clamp(18px, 2.6vw, 32px) 14px;
+}
+.rd-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rd-urg {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  align-self: flex-start;
+  background: rgba(20, 12, 8, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.rd-name {
+  font-size: clamp(22px, 3vw, 32px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: var(--rp-paper);
+}
+.rd-close {
+  flex-shrink: 0;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(20, 12, 8, 0.3);
+  color: var(--rp-paper);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 160ms var(--rp-ease), background 200ms ease;
+}
+.rd-close:active {
+  transform: scale(0.96);
+}
+.rd-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px clamp(18px, 2.6vw, 32px) clamp(20px, 2.6vw, 30px);
+  background: var(--rp-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.rd-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rd-lab {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(251, 246, 240, 0.5);
+}
+.rd-cover,
+.rd-rat {
+  font-size: 15px;
+  line-height: 1.65;
+  color: rgba(251, 246, 240, 0.92);
+  margin: 0;
+  max-width: 68ch;
+}
+.rd-chips,
+.rc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.rd-chip {
+  font-size: 12px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: rgba(251, 246, 240, 0.08);
+  border: 1px solid var(--rp-line);
+  color: rgba(251, 246, 240, 0.85);
+}
+.rd-clauses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rd-clause {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(251, 246, 240, 0.9);
+}
+.rd-faith {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.rd-faith-ok {
+  color: #a7e8c4;
+  background: rgba(6, 118, 71, 0.28);
+}
+.rd-faith-warn {
+  color: #f5d38b;
+  background: rgba(181, 71, 8, 0.3);
+}
+.rd-faith-bad {
+  color: #f6b4ac;
+  background: rgba(180, 35, 24, 0.3);
+}
+.rd-clause-text {
+  flex: 1;
+}
+.rd-grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+.rd-price {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--rp-paper);
+  margin: 0;
+}
+.rd-price-note {
+  font-size: 11.5px;
+  color: rgba(251, 246, 240, 0.5);
+  line-height: 1.6;
+  margin: 4px 0 0;
+}
+.rd-insurers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rd-insurer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rd-insurer-name {
+  font-size: 14px;
+  font-weight: 700;
+}
+.rd-insurer-why {
+  font-size: 11.5px;
+  color: rgba(251, 246, 240, 0.55);
+  line-height: 1.5;
+}
+.rd-chat {
+  margin-top: 6px;
+  border-top: 1px solid var(--rp-line);
+  padding-top: 16px;
+}
+
+/* ── Chat 面板(总览 dock + 详情内嵌复用）── */
+.rp-chat-fab {
+  position: fixed;
+  right: clamp(16px, 3vw, 40px);
+  bottom: clamp(16px, 3vw, 36px);
+  z-index: 1005;
+  appearance: none;
+  border: 1px solid rgba(251, 246, 240, 0.2);
+  background: var(--rp-paper);
+  color: #2a2622;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 12px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 12px 32px rgba(10, 6, 3, 0.4);
+  transition: transform 160ms var(--rp-ease);
+}
+.rp-chat-fab:active {
+  transform: scale(0.97);
+}
+.rp-chat-dock {
+  position: fixed;
+  right: clamp(12px, 3vw, 40px);
+  bottom: clamp(74px, 9vw, 96px);
+  z-index: 1006;
+  width: min(400px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 140px));
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(10, 6, 3, 0.55);
+  transform-origin: bottom right;
+}
+.rc {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: inherit;
+  background: var(--rp-ink-2);
+  border: 1px solid var(--rp-line);
+}
+.rd-chat .rc {
+  border: none;
+  background: transparent;
+  max-height: 420px;
+}
+.rc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rp-line);
+}
+.rc-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--rp-paper);
+}
+.rc-x {
+  appearance: none;
+  border: none;
+  background: none;
+  color: rgba(251, 246, 240, 0.6);
+  font-size: 12px;
+  cursor: pointer;
+}
+.rc-stream {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 120px;
+}
+.rc-intro p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(251, 246, 240, 0.62);
+  margin: 0 0 10px;
+}
+.rc-chip {
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(251, 246, 240, 0.08);
+  border: 1px solid var(--rp-line);
+  color: var(--rp-paper);
+  cursor: pointer;
+  transition: transform 140ms var(--rp-ease), background 180ms ease;
+}
+.rc-chip:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rc-chip:hover {
+    background: rgba(251, 246, 240, 0.14);
+  }
+}
+.rc-msg {
+  max-width: 88%;
+  padding: 9px 13px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.rc-user {
+  align-self: flex-end;
+  background: var(--rp-paper);
+  color: #2a2622;
+  border-bottom-right-radius: 5px;
+}
+.rc-assistant {
+  align-self: flex-start;
+  background: rgba(251, 246, 240, 0.09);
+  color: var(--rp-paper);
+  border-bottom-left-radius: 5px;
+}
+.rc-soft {
+  background: rgba(181, 71, 8, 0.2);
+}
+.rc-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.rc-disc {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: rgba(251, 246, 240, 0.5);
+  line-height: 1.5;
+}
+.rc-typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 2px 0;
+}
+.rc-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(251, 246, 240, 0.6);
+  animation: rpDot 1s ease-in-out infinite;
+}
+.rc-typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.rc-typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes rpDot {
+  0%, 100% {
     opacity: 0.3;
     transform: translateY(0);
   }
-  30% {
+  50% {
     opacity: 1;
     transform: translateY(-3px);
   }
 }
-
-/* 浮层 chat 面板进场 */
-.rv-chat-pop {
-  animation: rvPanelIn 220ms var(--rv-ease-out);
+.rc-typing-static span {
+  animation: none;
+  opacity: 0.7;
+}
+.rc-form {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--rp-line);
+}
+.rc-input {
+  flex: 1;
+  resize: none;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--rp-line);
+  background: rgba(251, 246, 240, 0.06);
+  color: var(--rp-paper);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.rc-input::placeholder {
+  color: rgba(251, 246, 240, 0.42);
+}
+.rc-input:focus-visible {
+  outline: 2px solid rgba(251, 246, 240, 0.4);
+  outline-offset: 1px;
+}
+.rc-send {
+  flex-shrink: 0;
+  appearance: none;
+  border: none;
+  background: var(--rp-paper);
+  color: #2a2622;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 0 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 160ms var(--rp-ease), opacity 160ms ease;
+}
+.rc-send:active {
+  transform: scale(0.96);
+}
+.rc-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
-/* ── 减弱动效:关掉位移/缩放/循环,仅保留不晕眩的淡入 ── */
-@media (prefers-reduced-motion: reduce) {
-  .rv-block {
-    opacity: 1;
-    transform: none;
-    transition: box-shadow 200ms ease, filter 200ms ease;
-    will-change: auto;
+/* ── 窄屏 ── */
+@media (max-width: 640px) {
+  .rd-grid2 {
+    grid-template-columns: 1fr;
   }
-  .rv-canvas[data-entered='true'] .rv-block {
-    transform: none;
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .rv-canvas[data-entered='true'] .rv-block:hover {
-      transform: none;
-    }
-  }
-  .rv-block:active {
-    transform: none;
-  }
-  .rv-detail-mask,
-  .rv-detail-panel,
-  .rv-chat-pop {
-    animation: rvMaskIn 120ms ease;
-  }
-  .rv-detail-panel {
-    animation-name: rvMaskIn;
-  }
-  .rv-dot {
-    animation: none !important;
+  .rp-detail {
+    inset: 8px;
   }
 }
 
-/* ── 打印:treemap 换结构化附录(暖纸,信息完整) ── */
+/* ── 打印文档(屏幕隐藏;导出 PDF 用)── */
+.rp-print {
+  display: none;
+}
 @media print {
-  .rv-screen {
+  /* print 文档已 portal 到 body:隐藏 app(#root 等其它 body 直接子节点),只印它。
+     用正常流(static)→ 内容自动跨页,不再被裁到一页。 */
+  body > *:not(.rp-print) {
     display: none !important;
   }
-  .rv-print {
-    display: block !important;
+  .rp-print {
+    display: block;
+    position: static;
+    width: auto;
+    background: #fff;
+    color: #1a1714;
+    font-family: var(--font-sans);
   }
-  .proposal-compare thead {
-    display: table-header-group;
+  .rp-print-title {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
   }
-  .proposal-compare tr {
+  .rp-print-meta {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #55504a;
+    margin: 0 0 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #ddd;
+  }
+  .rp-print-sec {
     break-inside: avoid;
+    margin: 0 0 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eee;
   }
-  .rv-print-line {
-    break-inside: avoid;
+  .rp-print-h2 {
+    font-size: 15px;
+    font-weight: 800;
+    margin: 0 0 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .rp-print-badge {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #7a746c;
+  }
+  .rp-print-p {
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 4px 0;
+    color: #2a2620;
+  }
+  .rp-print-p b {
+    color: #1a1714;
+  }
+  .rp-print-ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+  }
+  .rp-print-ul li {
+    font-size: 12px;
+    line-height: 1.55;
+    margin: 2px 0;
+  }
+  .rp-print-disc {
+    font-size: 10px;
+    line-height: 1.6;
+    color: #6a655e;
+    margin-top: 14px;
+  }
+  @page {
+    margin: 12mm;
+  }
+}
+
+/* ── 减少动效 ── */
+@media (prefers-reduced-motion: reduce) {
+  .rp-scan span,
+  .rc-typing span {
+    animation: none;
+  }
+  .rp-cell,
+  .rp-close,
+  .rp-retry,
+  .rc-chip,
+  .rc-send,
+  .rp-chat-fab {
+    transition: none;
   }
 }

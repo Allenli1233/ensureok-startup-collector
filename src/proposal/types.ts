@@ -149,6 +149,13 @@ export interface ProposalRequest {
     funding?: string;
     hasPatent?: boolean;
     overseasCountries?: string[];
+    // ── 稳定结构化信号(确定性打分用;镜像后端契约,无价格、不进 LLM)──
+    industryValue?: 'saas' | 'ai' | 'hardware' | 'fintech' | 'health' | 'ecom' | 'other';
+    headcountValue?: string;
+    fundingValue?: string;
+    hasPhysicalProduct?: boolean;
+    overseas?: boolean;
+    dataSensitive?: boolean;
   };
   diagnosis: {
     total: number;
