@@ -43,7 +43,7 @@ export function BlockDetailBody({
           <span className={`rd-urg rd-urg-${item.urgency}`}>{URGENCY_LABEL[item.urgency]} · {TIER_LABEL[item.tier] ?? item.tier}</span>
           <h2 className="rd-name">{item.lineName}</h2>
         </div>
-        <button type="button" className="rd-close" onClick={onClose} aria-label="返回 treemap">
+        <button type="button" className="rd-close" onClick={onClose} aria-label="返回体检总览">
           返回
         </button>
       </div>

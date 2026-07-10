@@ -54,7 +54,7 @@ export const URGENCY_META: Record<GapUrgency, UrgencyMeta> = {
   advice: { label: '建议', color: '#5f574b', bg: '#f4f0ea' },
 };
 
-/** treemap 分组结构(与 treemapLayout.LayoutGroup 对齐,但此层不依赖它) */
+/** 报告分组结构(供 bentoLayout 展开成扁平序列;此层不依赖布局实现) */
 export interface ReportGroup {
   key: GapUrgency;
   label: string;

@@ -2,34 +2,28 @@
  * 保障体检报告 —— 独立的全屏「体检舱」页面(进入即换页,电影级过渡)。
  *
  * 设计取向(design-taste-frontend + emil-design-eng):
- *   - MOTION_INTENSITY 8:进入以自定义 ease-out 幕帘展开;方块 spring 错峰进场;
- *     点方块 → 共享元素(layoutId)放大成详情(Motion 形变,非淡入淡出)。
- *   - 暖调深色「舱」(ink-900),方块暖→冷阶(白字对比已核 ≥4.5:1);克制留白 + 微光晕。
+ *   - 布局:Bento CSS Grid(bentoLayout 纯函数派 span);最紧迫/最高权重险种占 2×2 hero,
+ *     其余按权重比值分档(2×2 / 2×1 / 1×2 / 1×1),grid-auto-flow: dense 自动回填。窄屏降 2 列。
+ *   - 背景:自写 WebGL 鼠标跟随水波纹(RippleField)铺在 Bento 层背景,pointer-events:none。
+ *   - 开场:文字按阅读顺序模糊浮现(BlurInText);非金额数字向上滚动计数(NumberTicker)。
+ *   - 点方块 → 共享元素(layoutId)放大成详情,内容层加 scale/blur 流体过渡(emil)。
  *   - 全部动画尊重 prefers-reduced-motion:退化为不位移的透明度过渡。
- * 布局用零依赖 treemapLayout;不出现任何保费数字;合规免责固定可见。
+ * 不出现任何保费数字(金额只在 BlockDetail 参考价位);合规免责固定可见;PDF 打印文档不受影响。
  */
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { blockColor, buildReportGroups, itemWeight } from './reportModel';
-import { layoutReport, type LayoutMode } from './treemapLayout';
+import { bentoLayout, type Placement } from './bentoLayout';
+import { blockColor, buildReportGroups } from './reportModel';
 import type { Proposal, ProposalItem } from './types';
 import { BlockDetailBody } from './BlockDetail';
+import { BlurInText } from './BlurInText';
+import { NumberTicker } from './NumberTicker';
 import { ReportChatPanel } from './ReportChat';
+import { RippleField } from './RippleField';
 import './report.css';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const; // 强 ease-out(emil:内建太弱)
-const GAP = 8;
-const STACK_BP = 640;
-
-// 淡入上浮:进入视口时透明度 0→1 + 上移(reduced-motion 只淡入不位移)
-function fadeUp(reduce: boolean, delay = 0) {
-  return {
-    initial: reduce ? { opacity: 0 } : { opacity: 0, y: 18 },
-    whileInView: { opacity: 1, y: 0 },
-    viewport: { once: true, margin: '-40px' } as const,
-    transition: { duration: reduce ? 0.2 : 0.5, ease: EASE_OUT, delay },
-  };
-}
+const BENTO_BP = 720; // <720px 降级为 2 列
 
 export interface ReportProposalState {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -123,7 +117,8 @@ function Header({ company, onClose, onExport }: { company?: string; onClose: () 
   return (
     <header className="rp-header">
       <div className="rp-header-l">
-        <span className="rp-kicker">保障体检报告</span>
+        {/* 开场文字模糊浮现 · 阅读顺序第一段(startDelay 0) */}
+        <BlurInText as="span" className="rp-kicker" text="保障体检报告" by="char" startDelay={0} stagger={0.04} />
         {company ? <span className="rp-company">{company}</span> : null}
       </div>
       <div className="rp-header-actions">
@@ -166,17 +161,21 @@ function ErrorState({ message, onRetry }: { message?: string; onRetry: () => voi
   );
 }
 
-// ─────────────────────────── 报告主体(treemap + 详情 + chat) ───────────────────────────
+// ─────────────────────────── 报告主体(Bento + 详情 + chat) ───────────────────────────
 
-interface Placed {
+interface Cell {
   item: ProposalItem;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  delay: number;
-  scale: number; // 内容同比例放大系数(∝ √面积),1 = 基准,最大 1.85
-  snipLines: number; // 承保方向摘要可见行数(块越大越多)
+  placement: Placement;
+  scale: number; // 内容排版放大系数:hero 1.4 / 2×格 1.15 / 1×格 1
+  small: boolean; // 1×1:隐藏承保方向摘要
+  snipLines: number; // 摘要可见行数
+  delay: number; // 错峰进场
+}
+
+interface GroupCount {
+  key: string;
+  label: string;
+  count: number;
 }
 
 function ReportBody({
@@ -211,28 +210,34 @@ function ReportBody({
 
   const itemById = useMemo(() => new Map(proposal.items.map((it) => [it.lineId, it])), [proposal.items]);
 
-  const { placed, groups, height } = useMemo(() => {
-    const grps = buildReportGroups(proposal.items);
-    if (grps.length === 0 || width <= 0) return { placed: [] as Placed[], groups: [] as { key: string; label: string; x: number; y: number }[], height: 0 };
-    const mode: LayoutMode = width < STACK_BP ? 'stack' : 'treemap';
-    const layoutGroups = grps.map((g) => ({ key: g.key, label: g.label, nodes: g.nodes }));
-    const containerH = mode === 'stack' ? Math.max(proposal.items.length, 1) * 88 : clamp(width * 0.52, 320, 520);
-    const res = layoutReport(layoutGroups, { x: 0, y: 0, w: width, h: containerH }, mode, { gap: GAP, minBlock: mode === 'stack' ? 60 : 74 });
-    // 权重降序 → 大块先进场(错峰);建立 id→delay
-    const order = [...proposal.items].map((it) => it.lineId).sort((a, b) => itemWeight(itemById.get(b) as ProposalItem) - itemWeight(itemById.get(a) as ProposalItem));
-    const delayOf = new Map(order.map((id, i) => [id, i]));
-    const placedArr: Placed[] = res.blocks
-      .map((b) => {
-        const item = itemById.get(b.id);
+  // 组计数(强制 / 高优先 / 建议),复用 buildReportGroups 的固定顺序与文案
+  const groupCounts = useMemo<GroupCount[]>(
+    () => buildReportGroups(proposal.items).map((g) => ({ key: g.key, label: g.label, count: g.nodes.length })),
+    [proposal.items],
+  );
+
+  const cells = useMemo<Cell[]>(() => {
+    const groups = buildReportGroups(proposal.items);
+    if (groups.length === 0 || width <= 0) return [];
+    // 各组 nodes 按传入顺序展开成扁平序列(每项已带 weight);order = 展开序
+    const flat: { id: string; weight: number; order: number }[] = [];
+    let order = 0;
+    for (const g of groups) for (const n of g.nodes) flat.push({ id: n.id, weight: n.weight, order: order++ });
+
+    const columns = width < BENTO_BP ? 2 : 4;
+    const placements = bentoLayout(flat, { columns });
+
+    return placements
+      .map((placement, i) => {
+        const item = itemById.get(placement.id);
         if (!item) return null;
-        // 同比例放大:以 √面积 相对基准 380px 计,clamp 到 [1, 1.85];行数随之增加
-        const scale = clamp(Math.round((Math.sqrt(b.rect.w * b.rect.h) / 380) * 100) / 100, 1, 1.85);
-        const snipLines = scale >= 1.5 ? 6 : scale >= 1.25 ? 4 : 3;
-        return { item, x: b.rect.x, y: b.rect.y, w: b.rect.w, h: b.rect.h, delay: (delayOf.get(b.id) ?? 0) * 0.05, scale, snipLines };
+        const big = placement.colSpan === 2 || placement.rowSpan === 2;
+        const scale = placement.rank === 0 ? 1.4 : big ? 1.15 : 1;
+        const small = placement.colSpan === 1 && placement.rowSpan === 1;
+        const snipLines = placement.rank === 0 ? 6 : big ? 3 : 2;
+        return { item, placement, scale, small, snipLines, delay: i * 0.05 };
       })
-      .filter((x): x is Placed => x !== null);
-    const h = mode === 'stack' ? res.blocks.reduce((mx, b) => Math.max(mx, b.rect.y + b.rect.h), 0) + GAP : containerH;
-    return { placed: placedArr, groups: res.groups.map((g) => ({ key: g.key, label: g.label, x: g.rect.x, y: g.rect.y })), height: h };
+      .filter((c): c is Cell => c !== null);
   }, [proposal.items, width, itemById]);
 
   const selectedItem = selected ? itemById.get(selected) : undefined;
@@ -252,21 +257,35 @@ function ReportBody({
 
   return (
     <div className="rp-body">
-      <motion.div className="rp-summary" {...fadeUp(reduce)}>{proposal.clientSummary}</motion.div>
+      {/* 摘要 · 阅读顺序第二段 */}
+      <BlurInText as="div" className="rp-summary" text={proposal.clientSummary} by="line" startDelay={0.15} stagger={0.05} />
+
+      {/* 组计数 chip 一排 · 阅读顺序第三段;计数用 NumberTicker(非金额) */}
+      <div className="rp-groupbar">
+        <span className="rp-groupchip rp-groupchip-total">
+          <NumberTicker value={proposal.items.length} className="rp-groupchip-n" />
+          <BlurInText as="span" className="rp-groupchip-lab" text="项待关注" startDelay={0.28} />
+        </span>
+        {groupCounts.map((g, i) => (
+          <span key={g.key} className={`rp-groupchip rp-groupchip-${g.key}`}>
+            <BlurInText as="span" className="rp-groupchip-lab" text={g.label} startDelay={0.28 + (i + 1) * 0.06} />
+            <NumberTicker value={g.count} className="rp-groupchip-n" />
+          </span>
+        ))}
+      </div>
 
       <PrintDoc proposal={proposal} />
 
       <LayoutGroup>
-        <div className="rp-stage" ref={stageRef} style={{ height: height || 360 }}>
-          {groups.map((g) => (
-            <span key={g.key} className="rp-grouplabel" style={{ left: Math.round(g.x) + 10, top: Math.round(g.y) + 10 }}>
-              {g.label} · {countIn(proposal.items, g.key)}
-            </span>
-          ))}
-          {placed.map((p) => {
-            if (selected === p.item.lineId) return <span key={p.item.lineId} style={{ position: 'absolute', left: p.x, top: p.y, width: p.w, height: p.h }} aria-hidden="true" />;
-            const small = p.w < 132 || p.h < 96;
-            return <TreemapBlock key={p.item.lineId} p={p} small={small} reduce={reduce} onSelect={onSelect} />;
+        <div className={`rp-bento${width > 0 && width < BENTO_BP ? ' rp-bento-narrow' : ''}`} ref={stageRef}>
+          {/* 背景水波纹(pointer-events:none,不挡方块点击);reduced-motion / WebGL 不可用时自降级 */}
+          <RippleField />
+          {cells.map((c) => {
+            if (selected === c.item.lineId) {
+              // 占位:保持 Bento 网格不塌陷,层叠元素由 layoutId 形变承接
+              return <span key={c.item.lineId} className={cellSpanClass(c.placement)} aria-hidden="true" />;
+            }
+            return <BentoCell key={c.item.lineId} c={c} reduce={reduce} onSelect={onSelect} />;
           })}
         </div>
 
@@ -279,15 +298,31 @@ function ReportBody({
               style={{ background: blockColor(selectedItem.urgency, selectedItem.qualityScore).fill }}
               transition={{ type: 'spring', duration: reduce ? 0.2 : 0.55, bounce: reduce ? 0 : 0.12 }}
             >
-              <BlockDetailBody item={selectedItem} taskId={taskId} onClose={() => onSelect(null)} />
+              {/* emil 流体感:内容层做 scale/blur 收束,外层 layout 负责位置/尺寸 morph */}
+              <motion.div
+                className="rd-fluid"
+                initial={reduce ? { opacity: 0 } : { opacity: 0.6, scale: 0.96, filter: 'blur(6px)' }}
+                animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                exit={reduce ? { opacity: 0 } : { opacity: 0.6, scale: 0.98, filter: 'blur(4px)' }}
+                transition={{ duration: reduce ? 0.2 : 0.4, ease: EASE_OUT }}
+              >
+                <BlockDetailBody item={selectedItem} taskId={taskId} onClose={() => onSelect(null)} />
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
       </LayoutGroup>
 
-      <motion.p className="rp-hint" {...fadeUp(reduce)}>点方块进入该险种详情。面积越大 = 越紧迫、越应优先关注;色越暖 = 越紧迫。</motion.p>
+      {/* 提示 · 阅读顺序第四段 */}
+      <BlurInText
+        as="p"
+        className="rp-hint"
+        text="点方块进入该险种详情。块越大 = 越紧迫、越应优先关注;色越暖 = 越紧迫。"
+        by="line"
+        startDelay={0.4}
+      />
 
-      <motion.p className="rp-disclaimer" {...fadeUp(reduce)}>{proposal.disclaimer}</motion.p>
+      <p className="rp-disclaimer">{proposal.disclaimer}</p>
 
       {/* 总览 chat:悬浮触发 + 面板 */}
       <button type="button" className="rp-chat-fab" onClick={onToggleChat} aria-expanded={chatOpen}>
@@ -310,83 +345,56 @@ function ReportBody({
   );
 }
 
-// ─────────────────────────── treemap 单块(波纹点击 + 同比例内容 + 淡入上浮）───────────────────────────
+// ─────────────────────────── Bento 单格 ───────────────────────────
 
-interface Ripple {
-  id: number;
-  x: number;
-  y: number;
-  d: number;
+function cellSpanClass(p: Placement): string {
+  return `rp-cell rp-cell-${p.span}${p.rank === 0 ? ' rp-cell-hero' : ''}`;
 }
 
-function TreemapBlock({
-  p,
-  small,
+function BentoCell({
+  c,
   reduce,
   onSelect,
 }: {
-  p: Placed;
-  small: boolean;
+  c: Cell;
   reduce: boolean;
   onSelect: (id: string | null) => void;
 }): React.ReactElement {
-  const c = blockColor(p.item.urgency, p.item.qualityScore);
-  const [ripples, setRipples] = useState<Ripple[]>([]);
-  const nextId = useRef(0);
-
-  const spawnRipple = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (reduce) return; // 尊重 prefers-reduced-motion
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    // 直径覆盖到最远角,保证波纹铺满
-    const d = Math.hypot(Math.max(x, rect.width - x), Math.max(y, rect.height - y)) * 2;
-    setRipples((rs) => [...rs, { id: nextId.current++, x, y, d }]);
-  };
-  const endRipple = (id: number) => setRipples((rs) => rs.filter((r) => r.id !== id));
+  const { item, scale, small, snipLines, delay } = c;
+  const color = blockColor(item.urgency, item.qualityScore);
 
   return (
     <motion.button
-      layoutId={`rp-block-${p.item.lineId}`}
+      layoutId={`rp-block-${item.lineId}`}
       type="button"
-      className={`rp-block${small ? ' rp-block-sm' : ''}`}
+      className={`${cellSpanClass(c.placement)}${small ? ' rp-cell-sm' : ''}`}
       style={{
-        left: p.x,
-        top: p.y,
-        width: p.w,
-        height: p.h,
-        background: c.fill,
-        boxShadow: `0 8px 26px ${c.glow}`,
-        ['--rp-s' as string]: p.scale,
-        ['--rp-snip' as string]: p.snipLines,
+        background: color.fill,
+        boxShadow: `0 8px 26px ${color.glow}`,
+        ['--rp-s' as string]: scale,
+        ['--rp-snip' as string]: snipLines,
       }}
       initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: 16 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={reduce ? { duration: 0.2, delay: p.delay } : { type: 'spring', duration: 0.64, bounce: 0.16, delay: p.delay }}
+      transition={reduce ? { duration: 0.2, delay } : { type: 'spring', duration: 0.64, bounce: 0.16, delay }}
       whileTap={reduce ? undefined : { scale: 0.985 }}
-      onPointerDown={spawnRipple}
-      onClick={() => onSelect(p.item.lineId)}
-      aria-label={`${p.item.lineName}，${p.item.degraded ? '含待核项,' : ''}查看该险种详情`}
-      title={p.item.lineName}
+      onClick={() => onSelect(item.lineId)}
+      aria-label={`${item.lineName}，${item.degraded ? '含待核项,' : ''}查看该险种详情`}
+      title={item.lineName}
     >
-      {ripples.map((r) => (
-        <span
-          key={r.id}
-          className="rp-ripple"
-          style={{ left: r.x, top: r.y, width: r.d, height: r.d }}
-          onAnimationEnd={() => endRipple(r.id)}
-          aria-hidden="true"
-        />
-      ))}
-      {p.item.degraded && <span className="rp-flag" aria-hidden="true">待核</span>}
+      {item.degraded && <span className="rp-flag" aria-hidden="true">待核</span>}
       <span className="rp-block-inner">
-        <span className="rp-block-name">{p.item.lineName}</span>
-        {!small && p.item.coverageDirection && <span className="rp-block-snippet">{p.item.coverageDirection}</span>}
+        <span className="rp-block-name">{item.lineName}</span>
+        {!small && item.coverageDirection && <span className="rp-block-snippet">{item.coverageDirection}</span>}
       </span>
       {!small && (
         <span className="rp-block-foot">
-          <span className="rp-block-tier">{TIER_LABEL[p.item.tier] ?? p.item.tier}</span>
-          {typeof p.item.qualityScore === 'number' && <span className="rp-block-score">可信度 {p.item.qualityScore}</span>}
+          <span className="rp-block-tier">{TIER_LABEL[item.tier] ?? item.tier}</span>
+          {typeof item.qualityScore === 'number' && (
+            <span className="rp-block-score">
+              可信度 <NumberTicker value={item.qualityScore} />
+            </span>
+          )}
         </span>
       )}
     </motion.button>
@@ -443,11 +451,4 @@ function PrintDoc({ proposal }: { proposal: Proposal }): React.ReactElement {
       <p className="rp-print-disc">{proposal.disclaimer}</p>
     </div>
   );
-}
-
-function countIn(items: ProposalItem[], key: string): number {
-  return items.filter((i) => i.urgency === key).length;
-}
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, v));
 }
