@@ -24,6 +24,11 @@ export interface ComputePricingOutput {
 }
 
 const CUR_G = /([\d,]+(?:\.\d+)?)\s*(万元|万|元)/g;
+/**
+ * 年保费上限护栏:≥300万 的"年保费"在这些中小企业险种里几乎必然是保额/额度漏入
+ * (如"2000万保额"被当成保费),予以排除。守住"排除保额"红线,宁可回退"待下钻"也不显错价。
+ */
+const PREMIUM_CEILING_CNY = 3_000_000;
 /** 列头是"保额档"(含具体数字+万,如 10万保额/100万/3000-5000万)→ 其下单元格是保费 */
 const isBracketHeader = (h: string): boolean => /\d[\d,.]*\s*万/.test(h);
 /** 列头明说是保费 */
@@ -92,15 +97,27 @@ export function computePricing(input: ComputePricingInput, ctx: ToolContext): To
     if (hit) rowRefs.push(t.contextPath.join(' > '));
   }
 
-  if (premiums.length === 0) {
-    return ok({ ...base, matchTier: 'blank', basis: '价格表中未能隔离出保费(可能为纯费率/保额)', rowRefs, unavailableReason: 'no_premium_isolated' });
+  // 护栏:排除数额过大(几乎必是保额漏入)的候选,守住"排除保额"红线
+  const isolated = premiums.filter((v) => v > 0 && v < PREMIUM_CEILING_CNY);
+
+  if (isolated.length === 0) {
+    return ok({
+      ...base,
+      matchTier: 'blank',
+      basis:
+        premiums.length > 0
+          ? '价格表数额均超年保费合理上限(疑似仅保额/额度),未隔离出保费'
+          : '价格表中未能隔离出保费(可能为纯费率/保额)',
+      rowRefs,
+      unavailableReason: 'no_premium_isolated',
+    });
   }
 
   return ok({
     ...base,
     matchTier: 'bracket',
-    premiumMinCny: Math.min(...premiums),
-    premiumMaxCny: Math.max(...premiums),
+    premiumMinCny: Math.min(...isolated),
+    premiumMaxCny: Math.max(...isolated),
     basis: `从 ${rowRefs.length} 处价格表隔离保费(已排除保额档与外币)`,
     rowRefs,
   });

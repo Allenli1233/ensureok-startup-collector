@@ -87,6 +87,36 @@ describe('compute_pricing(隔离保费,排除保额)', () => {
       expect(r.data.premiumMaxCny).toBe(1468);
     }
   });
+
+  // 护栏:数额 ≥300万 的"年保费"几乎必是保额漏入(如 2000万保额),应被排除
+  const catWithTable = (columns: string[], rows: string[][]): ProductCatalog => {
+    const c = catalog();
+    c.sections[0].tables[0] = { contextPath: ['二、产品对比', '2.1 人保'], columns, rows, isPriceTable: true, insurers: ['中国人保'] };
+    return c;
+  };
+  const ctxOf = async (c: ProductCatalog): Promise<ToolContext> => ({
+    ...(await pipelineCtx()),
+    catalogs: new Map<InsuranceLineId, ProductCatalog>([['employer_liability', c]]),
+  });
+
+  it('数额过大(保额漏入)→ 护栏排除,回退 no_premium_isolated(不显 2000万–2000万)', async () => {
+    const r = computePricing({ lineId: 'employer_liability' }, await ctxOf(catWithTable(['职业类别', '2000万'], [['1-2类', '2000万元']])));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.matchTier).toBe('blank');
+      expect(r.data.unavailableReason).toBe('no_premium_isolated');
+      expect(r.data.premiumMinCny).toBeUndefined();
+    }
+  });
+
+  it('保费与保额混在一表 → 只留合理保费,排除保额级数额', async () => {
+    const r = computePricing({ lineId: 'employer_liability' }, await ctxOf(catWithTable(['职业类别', '100万', '2000万'], [['1-2类', '500元', '2000万元']])));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.premiumMinCny).toBe(500);
+      expect(r.data.premiumMaxCny).toBe(500); // 2000万被排除
+    }
+  });
 });
 
 describe('check_compliance', () => {
