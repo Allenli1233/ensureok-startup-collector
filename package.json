@@ -1,13 +1,16 @@
 {
-  "name": "ensureok-startup-collector",
+  "name": "startup-risk-analysis",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "创业公司保障画像采集器 —— 三段式问卷 + 确定性缺口诊断反馈,纯前端,留资/埋点回流 EnsureOK 现有 API",
+  "description": "初创企业风险与保障分析 —— 问卷画像 → 确定性缺口诊断 + 产品库候选池打分 → 对抗式逐险种生成 → 密铺体检报告(含解读 chat / PDF 导出)。独立第三方风险分析工具,不承保、不销售。",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
+    "setup": "npm install",
+    "backend": "npm run -w @ensureok/server start",
+    "frontend": "vite",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
