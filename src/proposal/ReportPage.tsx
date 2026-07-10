@@ -12,6 +12,7 @@
  */
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { bentoLayout, type BentoRect } from './bentoLayout';
 import { blockColor, buildReportGroups } from './reportModel';
 import type { Proposal, ProposalItem } from './types';
@@ -415,9 +416,11 @@ function BentoCell({
 const TIER_LABEL: Record<string, string> = { tier1: '核心', tier2: '重点', tier3: '补充', tier4: '可选' };
 const URGENCY_LABEL: Record<string, string> = { mandatory: '强制', high: '高优先', advice: '建议' };
 
-// 打印专用的干净文档(屏幕上 display:none;仅 @media print 可见)。导出 PDF = window.print()。
-function PrintDoc({ proposal }: { proposal: Proposal }): React.ReactElement {
-  return (
+// 打印专用的干净文档。portal 到 body(脱离全屏舱的 fixed/overflow 容器),
+// 打印时以正常流从纸张顶部开始、自动跨页,信息不再被裁到一页。屏幕上 display:none。
+function PrintDoc({ proposal }: { proposal: Proposal }): React.ReactElement | null {
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div className="rp-print">
       <h1 className="rp-print-title">保障体检报告</h1>
       <p className="rp-print-meta">
@@ -460,6 +463,7 @@ function PrintDoc({ proposal }: { proposal: Proposal }): React.ReactElement {
         );
       })}
       <p className="rp-print-disc">{proposal.disclaimer}</p>
-    </div>
+    </div>,
+    document.body,
   );
 }

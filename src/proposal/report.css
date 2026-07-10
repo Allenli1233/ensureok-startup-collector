@@ -803,20 +803,15 @@
   display: none;
 }
 @media print {
-  /* 只打印 rp-print 子树:先全隐藏,再逐层放出(自动盖掉背后的采集器页) */
-  body * {
-    visibility: hidden !important;
-  }
-  .rp-print,
-  .rp-print * {
-    visibility: visible !important;
+  /* print 文档已 portal 到 body:隐藏 app(#root 等其它 body 直接子节点),只印它。
+     用正常流(static)→ 内容自动跨页,不再被裁到一页。 */
+  body > *:not(.rp-print) {
+    display: none !important;
   }
   .rp-print {
     display: block;
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    padding: 0 8mm;
+    position: static;
+    width: auto;
     background: #fff;
     color: #1a1714;
     font-family: var(--font-sans);
