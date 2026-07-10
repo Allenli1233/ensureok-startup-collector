@@ -65,7 +65,7 @@ const DISCLAIMER =
  * 价格/保司仍走确定性组装,LLM 不碰数字。
  */
 export async function generateProposal(req: ProposalRequest, deps: GenerateDeps): Promise<Proposal> {
-  const planned = planLines(req.diagnosis.findings);
+  const planned = planLines(req.diagnosis.findings, req.profile);
   const clientSummary = buildClientSummary(req);
   const loopOn = Boolean(deps.judge && deps.loop?.enabled);
   const budget = { used: 0, max: deps.loop?.callBudget ?? Number.POSITIVE_INFINITY };

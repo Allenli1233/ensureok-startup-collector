@@ -7,6 +7,13 @@ import {
 } from '../config/startupProfileCollector';
 import type { ProposalRequest } from './types';
 
+/** 采集器 industry value → 稳定枚举(未知落 undefined,打分侧退化为 0) */
+const INDUSTRY_VALUES = ['saas', 'ai', 'hardware', 'fintech', 'health', 'ecom', 'other'] as const;
+type IndustryValue = (typeof INDUSTRY_VALUES)[number];
+function toIndustryValue(v: string | undefined): IndustryValue | undefined {
+  return v && (INDUSTRY_VALUES as readonly string[]).includes(v) ? (v as IndustryValue) : undefined;
+}
+
 function optionLabel(qid: QuestionId, value: string | undefined): string | undefined {
   if (!value) return undefined;
   return COLLECTOR_QUESTIONS.find((q) => q.id === qid)?.options.find((o) => o.value === value)?.label;
@@ -42,6 +49,13 @@ export function buildProposalRequest(input: BuildProposalInput): ProposalRequest
       funding: optionLabel('funding', answers.funding),
       hasPatent: answers.patent === 'granted',
       overseasCountries: answers.b0 === 'yes' ? overseasLabels(answers.overseasCountries) : undefined,
+      // ── 稳定结构化信号(确定性打分用;缺省安全,旧调用不受影响)──
+      industryValue: toIndustryValue(answers.industry),
+      headcountValue: answers.headcount,
+      fundingValue: answers.funding,
+      hasPhysicalProduct: answers.b2 === 'yes',
+      overseas: answers.b0 === 'yes',
+      dataSensitive: answers.c1 === 'yes',
     },
     diagnosis: {
       total: diagnosis.total,

@@ -457,7 +457,7 @@ export function diagnoseGaps(a: CollectorAnswers): CollectorDiagnosis {
       id: 'fintech_base', line: 'company', urgency: 'advice',
       title: '金融科技数据与资金风险敞口',
       desc: '支付与资金链路的数据安全事件、内外部欺诈是金融科技的两类高频敞口。',
-      coverage: '网络安全保险(Cyber)+ 犯罪保障(Crime)',
+      coverage: '网络安全保险(Cyber)',
     });
   }
   if (a.industry === 'health' && !hasCyber) {
