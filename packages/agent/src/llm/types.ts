@@ -24,6 +24,10 @@ export interface ChatCompleteOptions {
   temperature?: number;
   tools?: ToolDef[];
   toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+  /** 单次覆盖模型(如 chat 用更快的小模型);缺省用 provider 构造时的 model */
+  model?: string;
+  /** 输出上限:短答复设小值可显著提速(模型更早停) */
+  maxTokens?: number;
 }
 
 /** 一次 assistant 回合:纯文本 + 可能的工具调用 + 结束原因 */

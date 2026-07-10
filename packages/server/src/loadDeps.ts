@@ -22,11 +22,16 @@ export async function loadDeps(): Promise<ServerDeps> {
   const ragStore = await loadStore(resolve(REPO_ROOT, 'packages/rag/data/rag-index.json'));
   // 对抗式 loop 默认关闭;ADV_LOOP=1 开启(judge 用异构模型)
   const loopOn = process.env.ADV_LOOP === '1';
+  const chat = createChatProvider();
+  // 报告解读 chat 可用更快的小模型:设 OPENAI_QA_MODEL 即启用;缺省复用生成用的 chat
+  const qaModel = process.env.OPENAI_QA_MODEL;
+  const qaChat = qaModel ? createChatProvider({ ...process.env, OPENAI_CHAT_MODEL: qaModel }) : chat;
   return {
     catalogs,
     ragStore,
     embedding: createEmbeddingProvider(),
-    chat: createChatProvider(),
+    chat,
+    qaChat,
     judge: loopOn ? createJudge() : undefined,
     loop: { enabled: loopOn, maxRevisions: Number(process.env.ADV_MAX_REV ?? 2) },
   };

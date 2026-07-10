@@ -9,6 +9,8 @@ const CHAT_CAP = 20;
 /** 生成依赖(不含 generatedAt;每个任务生成时注入)+ 可注入的时钟(便于测试) */
 export interface ServerDeps extends Omit<GenerateDeps, 'generatedAt'> {
   now?: () => string;
+  /** 报告解读 chat 用的后端(可配更快的小模型;缺省复用生成用的 chat) */
+  qaChat?: GenerateDeps['chat'];
 }
 
 /**
@@ -84,14 +86,14 @@ async function handle(
         if (!item) return json(res, 400, { error: { code: 'bad_scope', message: '未知险种' } });
         let evidence: Array<{ text: string; sourceFile: string }> = [];
         try {
-          const chunks = await retrieve(deps.ragStore, deps.embedding, `${item.lineName} ${question}`, { insuranceLines: [item.lineName], topK: 4 });
+          const chunks = await retrieve(deps.ragStore, deps.embedding, `${item.lineName} ${question}`, { insuranceLines: [item.lineName], topK: 3 });
           evidence = chunks.map((c) => ({ text: c.text, sourceFile: c.meta.sourceFile }));
         } catch {
           /* 无证据也能基于报告内容答 */
         }
         scope = { kind: 'line', proposal: job.proposal, lineId: scopeRaw, evidence };
       }
-      const result = await answerQuestion(deps.chat, question, scope);
+      const result = await answerQuestion(deps.qaChat ?? deps.chat, question, scope);
       return json(res, 200, result);
     }
 
