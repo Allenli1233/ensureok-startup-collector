@@ -63,7 +63,8 @@ void main() {
   // (b) 高光:白色 spec
   float spec = smoothstep(0.18, 0.62, ring);
   vec3 col = warm + spec * vec3(0.92, 0.82, 0.70);
-  float alpha = clamp(abs(ring) * 0.5 + spec * 0.4, 0.0, 0.45);
+  // 叠在方块之上,压低 alpha 只留鼠标附近的水光波纹,不糊文字
+  float alpha = clamp(abs(ring) * 0.30 + spec * 0.24, 0.0, 0.28);
   gl_FragColor = vec4(col * alpha, alpha); // 预乘 alpha
 }`;
 

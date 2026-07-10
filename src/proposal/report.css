@@ -216,40 +216,29 @@
   border-color: rgba(133, 96, 49, 0.55);
 }
 
-/* ── Bento CSS Grid:hero 2×2 + 其余按权重派 span;dense 自动回填空洞 ── */
+/* ── Bento 密铺:squarified 绝对定位,100% 铺满、无空洞;高度由 JS 计算写内联 ── */
 .rp-bento {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-auto-rows: clamp(132px, 15vw, 160px);
-  grid-auto-flow: row dense;
-  gap: 12px;
   width: 100%;
-}
-.rp-bento-narrow {
-  grid-template-columns: repeat(2, 1fr);
-}
-@media (max-width: 720px) {
-  .rp-bento {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--rp-ink); /* 缝隙统一暗底,杜绝白色留白 */
 }
 
-/* WebGL 水波纹背景 canvas:铺满 Bento、pointer-events:none、置于方块之下 */
+/* WebGL 水波纹 canvas:叠在方块之上(pointer-events:none),鼠标划过方块即有波纹 */
 .rp-ripple-canvas {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 6;
   width: 100%;
   height: 100%;
-  border-radius: 16px;
   pointer-events: none;
 }
 
-/* ── Bento 单格 ── */
+/* ── Bento 单格(绝对定位,left/top/width/height 由 JS 内联)── */
 .rp-cell {
-  position: relative;
-  z-index: 1; /* 盖在水波纹 canvas 之上 */
+  position: absolute;
+  z-index: 1;
   overflow: hidden;
   appearance: none;
   border: none;
@@ -266,28 +255,6 @@
   gap: calc(8px * min(var(--rp-s, 1), 1.5));
   font-family: var(--font-sans);
   transition: filter 220ms var(--rp-ease), box-shadow 220ms var(--rp-ease);
-}
-.rp-cell-2x2 {
-  grid-column: span 2;
-  grid-row: span 2;
-}
-.rp-cell-2x1 {
-  grid-column: span 2;
-  grid-row: span 1;
-}
-.rp-cell-1x2 {
-  grid-column: span 1;
-  grid-row: span 2;
-}
-.rp-cell-1x1 {
-  grid-column: span 1;
-  grid-row: span 1;
-}
-/* 窄屏 2 列:任何 colSpan 天然 ≤ 2;仅需保证 2x2 不横向溢出(span 2 = 整宽)。 */
-@media (max-width: 720px) {
-  .rp-cell-2x2 {
-    grid-column: span 2;
-  }
 }
 .rp-cell::before {
   content: '';

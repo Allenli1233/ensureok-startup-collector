@@ -12,7 +12,7 @@
  */
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { bentoLayout, type Placement } from './bentoLayout';
+import { bentoLayout, type BentoRect } from './bentoLayout';
 import { blockColor, buildReportGroups } from './reportModel';
 import type { Proposal, ProposalItem } from './types';
 import { BlockDetailBody } from './BlockDetail';
@@ -23,7 +23,20 @@ import { RippleField } from './RippleField';
 import './report.css';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const; // 强 ease-out(emil:内建太弱)
-const BENTO_BP = 720; // <720px 降级为 2 列
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const BENTO_BP = 720; // <720px 视为窄屏(容器更高,密铺更竖)
+const BENTO_GAP = 8; // 相邻块间隙(走暗底,不再白斑)
+
+/** 容器高度:宽屏偏横、窄屏偏竖;随险种数略增高,避免块过小。铺满由 squarify 保证。 */
+function bentoHeight(width: number, count: number): number {
+  if (width <= 0 || count === 0) return 0;
+  const narrow = width < BENTO_BP;
+  const base = narrow ? width * 1.25 : width * 0.56;
+  const perItem = narrow ? count * 40 : count * 18;
+  const lo = narrow ? 420 : 380;
+  const hi = narrow ? 1200 : 760;
+  return Math.round(Math.min(hi, Math.max(lo, base + perItem)));
+}
 
 export interface ReportProposalState {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -165,9 +178,9 @@ function ErrorState({ message, onRetry }: { message?: string; onRetry: () => voi
 
 interface Cell {
   item: ProposalItem;
-  placement: Placement;
-  scale: number; // 内容排版放大系数:hero 1.4 / 2×格 1.15 / 1×格 1
-  small: boolean; // 1×1:隐藏承保方向摘要
+  rect: BentoRect; // 绝对定位矩形(完全铺满容器)
+  scale: number; // 内容排版放大系数(∝ 块尺寸)
+  small: boolean; // 小块:隐藏承保方向摘要
   snipLines: number; // 摘要可见行数
   delay: number; // 错峰进场
 }
@@ -216,29 +229,30 @@ function ReportBody({
     [proposal.items],
   );
 
+  const bentoH = useMemo(() => bentoHeight(width, proposal.items.length), [width, proposal.items.length]);
+
   const cells = useMemo<Cell[]>(() => {
     const groups = buildReportGroups(proposal.items);
-    if (groups.length === 0 || width <= 0) return [];
+    if (groups.length === 0 || width <= 0 || bentoH <= 0) return [];
     // 各组 nodes 按传入顺序展开成扁平序列(每项已带 weight);order = 展开序
     const flat: { id: string; weight: number; order: number }[] = [];
     let order = 0;
     for (const g of groups) for (const n of g.nodes) flat.push({ id: n.id, weight: n.weight, order: order++ });
 
-    const columns = width < BENTO_BP ? 2 : 4;
-    const placements = bentoLayout(flat, { columns });
+    const rects = bentoLayout(flat, { width, height: bentoH }, { gap: BENTO_GAP });
 
-    return placements
-      .map((placement, i) => {
-        const item = itemById.get(placement.id);
+    return rects
+      .map((rect, i) => {
+        const item = itemById.get(rect.id);
         if (!item) return null;
-        const big = placement.colSpan === 2 || placement.rowSpan === 2;
-        const scale = placement.rank === 0 ? 1.4 : big ? 1.15 : 1;
-        const small = placement.colSpan === 1 && placement.rowSpan === 1;
-        const snipLines = placement.rank === 0 ? 6 : big ? 3 : 2;
-        return { item, placement, scale, small, snipLines, delay: i * 0.05 };
+        const side = Math.sqrt(rect.w * rect.h);
+        const scale = clamp(Math.round((side / 300) * 100) / 100, 1, 1.5);
+        const small = rect.w < 150 || rect.h < 108; // 太小 → 只显名,不显摘要
+        const snipLines = rect.h > 300 ? 6 : rect.h > 210 ? 4 : rect.h > 150 ? 3 : 2;
+        return { item, rect, scale, small, snipLines, delay: i * 0.04 };
       })
       .filter((c): c is Cell => c !== null);
-  }, [proposal.items, width, itemById]);
+  }, [proposal.items, width, bentoH, itemById]);
 
   const selectedItem = selected ? itemById.get(selected) : undefined;
 
@@ -277,16 +291,14 @@ function ReportBody({
       <PrintDoc proposal={proposal} />
 
       <LayoutGroup>
-        <div className={`rp-bento${width > 0 && width < BENTO_BP ? ' rp-bento-narrow' : ''}`} ref={stageRef}>
-          {/* 背景水波纹(pointer-events:none,不挡方块点击);reduced-motion / WebGL 不可用时自降级 */}
-          <RippleField />
+        <div className="rp-bento" ref={stageRef} style={{ height: bentoH || 360 }}>
           {cells.map((c) => {
-            if (selected === c.item.lineId) {
-              // 占位:保持 Bento 网格不塌陷,层叠元素由 layoutId 形变承接
-              return <span key={c.item.lineId} className={cellSpanClass(c.placement)} aria-hidden="true" />;
-            }
+            // 绝对定位密铺:选中项让位给 layoutId 形变,无需占位(兄弟不回流)
+            if (selected === c.item.lineId) return null;
             return <BentoCell key={c.item.lineId} c={c} reduce={reduce} onSelect={onSelect} />;
           })}
+          {/* 水波纹叠在方块之上(pointer-events:none,不挡点击):鼠标划过方块即有波纹,缝隙统一暗底 */}
+          <RippleField />
         </div>
 
         <AnimatePresence>
@@ -347,10 +359,6 @@ function ReportBody({
 
 // ─────────────────────────── Bento 单格 ───────────────────────────
 
-function cellSpanClass(p: Placement): string {
-  return `rp-cell rp-cell-${p.span}${p.rank === 0 ? ' rp-cell-hero' : ''}`;
-}
-
 function BentoCell({
   c,
   reduce,
@@ -360,15 +368,19 @@ function BentoCell({
   reduce: boolean;
   onSelect: (id: string | null) => void;
 }): React.ReactElement {
-  const { item, scale, small, snipLines, delay } = c;
+  const { item, rect, scale, small, snipLines, delay } = c;
   const color = blockColor(item.urgency, item.qualityScore);
 
   return (
     <motion.button
       layoutId={`rp-block-${item.lineId}`}
       type="button"
-      className={`${cellSpanClass(c.placement)}${small ? ' rp-cell-sm' : ''}`}
+      className={`rp-cell${rect.rank === 0 ? ' rp-cell-hero' : ''}${small ? ' rp-cell-sm' : ''}`}
       style={{
+        left: rect.x,
+        top: rect.y,
+        width: rect.w,
+        height: rect.h,
         background: color.fill,
         boxShadow: `0 8px 26px ${color.glow}`,
         ['--rp-s' as string]: scale,
