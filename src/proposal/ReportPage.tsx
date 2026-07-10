@@ -93,7 +93,11 @@ export function ReportPage({
         exit={reduce ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.99, filter: 'blur(6px)' }}
         transition={{ duration: reduce ? 0.15 : 0.62, ease: EASE_OUT }}
       >
-        <Header company={state.proposal?.meta.company} onClose={onClose} />
+        <Header
+          company={state.proposal?.meta.company}
+          onClose={onClose}
+          onExport={state.status === 'ready' && state.proposal ? () => window.print() : undefined}
+        />
 
         {state.status === 'loading' || state.status === 'idle' ? (
           <ChamberLoading reduce={!!reduce} />
@@ -115,16 +119,23 @@ export function ReportPage({
   );
 }
 
-function Header({ company, onClose }: { company?: string; onClose: () => void }): React.ReactElement {
+function Header({ company, onClose, onExport }: { company?: string; onClose: () => void; onExport?: () => void }): React.ReactElement {
   return (
     <header className="rp-header">
       <div className="rp-header-l">
         <span className="rp-kicker">保障体检报告</span>
         {company ? <span className="rp-company">{company}</span> : null}
       </div>
-      <button type="button" className="rp-close" onClick={onClose} aria-label="返回">
-        <span aria-hidden="true">返回</span>
-      </button>
+      <div className="rp-header-actions">
+        {onExport && (
+          <button type="button" className="rp-close" onClick={onExport} aria-label="导出 PDF">
+            <span aria-hidden="true">导出 PDF</span>
+          </button>
+        )}
+        <button type="button" className="rp-close" onClick={onClose} aria-label="返回">
+          <span aria-hidden="true">返回</span>
+        </button>
+      </div>
     </header>
   );
 }
@@ -242,6 +253,8 @@ function ReportBody({
   return (
     <div className="rp-body">
       <motion.div className="rp-summary" {...fadeUp(reduce)}>{proposal.clientSummary}</motion.div>
+
+      <PrintDoc proposal={proposal} />
 
       <LayoutGroup>
         <div className="rp-stage" ref={stageRef} style={{ height: height || 360 }}>
@@ -381,6 +394,56 @@ function TreemapBlock({
 }
 
 const TIER_LABEL: Record<string, string> = { tier1: '核心', tier2: '重点', tier3: '补充', tier4: '可选' };
+const URGENCY_LABEL: Record<string, string> = { mandatory: '强制', high: '高优先', advice: '建议' };
+
+// 打印专用的干净文档(屏幕上 display:none;仅 @media print 可见)。导出 PDF = window.print()。
+function PrintDoc({ proposal }: { proposal: Proposal }): React.ReactElement {
+  return (
+    <div className="rp-print">
+      <h1 className="rp-print-title">保障体检报告</h1>
+      <p className="rp-print-meta">
+        {proposal.meta.company ? `${proposal.meta.company} · ` : ''}
+        {proposal.clientSummary}
+      </p>
+      {proposal.items.map((it) => {
+        const clauses = it.keyClausesDetailed?.length ? it.keyClausesDetailed.map((c) => c.text) : it.keyClauses;
+        return (
+          <section key={it.lineId} className="rp-print-sec">
+            <h2 className="rp-print-h2">
+              {it.lineName}
+              <span className="rp-print-badge">
+                {URGENCY_LABEL[it.urgency] ?? it.urgency} · {TIER_LABEL[it.tier] ?? it.tier}
+                {typeof it.qualityScore === 'number' ? ` · 可信度 ${it.qualityScore}` : ''}
+              </span>
+            </h2>
+            {it.coverageDirection && (
+              <p className="rp-print-p"><b>承保方向:</b>{it.coverageDirection}</p>
+            )}
+            {it.rationale && <p className="rp-print-p"><b>为什么推荐:</b>{it.rationale}</p>}
+            {clauses.length > 0 && (
+              <div className="rp-print-p">
+                <b>条款要点:</b>
+                <ul className="rp-print-ul">
+                  {clauses.map((c, i) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            )}
+            {it.pricing?.display && (
+              <p className="rp-print-p"><b>参考价位:</b>{it.pricing.display}(以保司实际报价为准,非成交报价)</p>
+            )}
+            {it.recommendedProducts.length > 0 && (
+              <p className="rp-print-p">
+                <b>产品库在售保司:</b>
+                {it.recommendedProducts.slice(0, 3).map((r) => r.insurer).join('、')}
+              </p>
+            )}
+          </section>
+        );
+      })}
+      <p className="rp-print-disc">{proposal.disclaimer}</p>
+    </div>
+  );
+}
 
 function countIn(items: ProposalItem[], key: string): number {
   return items.filter((i) => i.urgency === key).length;
