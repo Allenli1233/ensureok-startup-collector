@@ -8,7 +8,7 @@
  *   - 全部动画尊重 prefers-reduced-motion:退化为不位移的透明度过渡。
  * 布局用零依赖 treemapLayout;不出现任何保费数字;合规免责固定可见。
  */
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { blockColor, buildReportGroups, itemWeight } from './reportModel';
 import { layoutReport, type LayoutMode } from './treemapLayout';
@@ -20,6 +20,16 @@ import './report.css';
 const EASE_OUT = [0.22, 1, 0.36, 1] as const; // 强 ease-out(emil:内建太弱)
 const GAP = 8;
 const STACK_BP = 640;
+
+// 淡入上浮:进入视口时透明度 0→1 + 上移(reduced-motion 只淡入不位移)
+function fadeUp(reduce: boolean, delay = 0) {
+  return {
+    initial: reduce ? { opacity: 0 } : { opacity: 0, y: 18 },
+    whileInView: { opacity: 1, y: 0 },
+    viewport: { once: true, margin: '-40px' } as const,
+    transition: { duration: reduce ? 0.2 : 0.5, ease: EASE_OUT, delay },
+  };
+}
 
 export interface ReportProposalState {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -41,6 +51,11 @@ export function ReportPage({
   const [selected, setSelected] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
 
+  // 视差:背景光晕层随 chamber 滚动以更慢速率位移(净 ~0.77×),制造纵深
+  const scrimRef = useRef<HTMLDivElement>(null);
+  const { scrollY } = useScroll({ container: scrimRef });
+  const bgY = useTransform(scrollY, [0, 700], [0, 160]);
+
   // Esc 关闭(有详情先关详情);锁背景滚动
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,6 +75,7 @@ export function ReportPage({
 
   return (
     <motion.div
+      ref={scrimRef}
       className="rp-scrim"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -69,6 +85,7 @@ export function ReportPage({
       aria-modal="true"
       aria-label="保障体检报告"
     >
+      <motion.div className="rp-parallax" aria-hidden="true" style={reduce ? undefined : { y: bgY }} />
       <motion.div
         className="rp-chamber"
         initial={reduce ? { opacity: 0 } : { opacity: 0, y: 26, scale: 0.985, filter: 'blur(8px)' }}
@@ -147,6 +164,8 @@ interface Placed {
   w: number;
   h: number;
   delay: number;
+  scale: number; // 内容同比例放大系数(∝ √面积),1 = 基准,最大 1.85
+  snipLines: number; // 承保方向摘要可见行数(块越大越多)
 }
 
 function ReportBody({
@@ -195,7 +214,10 @@ function ReportBody({
       .map((b) => {
         const item = itemById.get(b.id);
         if (!item) return null;
-        return { item, x: b.rect.x, y: b.rect.y, w: b.rect.w, h: b.rect.h, delay: (delayOf.get(b.id) ?? 0) * 0.05 };
+        // 同比例放大:以 √面积 相对基准 380px 计,clamp 到 [1, 1.85];行数随之增加
+        const scale = clamp(Math.round((Math.sqrt(b.rect.w * b.rect.h) / 380) * 100) / 100, 1, 1.85);
+        const snipLines = scale >= 1.5 ? 6 : scale >= 1.25 ? 4 : 3;
+        return { item, x: b.rect.x, y: b.rect.y, w: b.rect.w, h: b.rect.h, delay: (delayOf.get(b.id) ?? 0) * 0.05, scale, snipLines };
       })
       .filter((x): x is Placed => x !== null);
     const h = mode === 'stack' ? res.blocks.reduce((mx, b) => Math.max(mx, b.rect.y + b.rect.h), 0) + GAP : containerH;
@@ -219,7 +241,7 @@ function ReportBody({
 
   return (
     <div className="rp-body">
-      <div className="rp-summary">{proposal.clientSummary}</div>
+      <motion.div className="rp-summary" {...fadeUp(reduce)}>{proposal.clientSummary}</motion.div>
 
       <LayoutGroup>
         <div className="rp-stage" ref={stageRef} style={{ height: height || 360 }}>
@@ -231,35 +253,7 @@ function ReportBody({
           {placed.map((p) => {
             if (selected === p.item.lineId) return <span key={p.item.lineId} style={{ position: 'absolute', left: p.x, top: p.y, width: p.w, height: p.h }} aria-hidden="true" />;
             const small = p.w < 132 || p.h < 96;
-            const c = blockColor(p.item.urgency, p.item.qualityScore);
-            return (
-              <motion.button
-                key={p.item.lineId}
-                layoutId={`rp-block-${p.item.lineId}`}
-                type="button"
-                className={`rp-block${small ? ' rp-block-sm' : ''}`}
-                style={{ left: p.x, top: p.y, width: p.w, height: p.h, background: c.fill, boxShadow: `0 8px 26px ${c.glow}` }}
-                initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.94 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={reduce ? { duration: 0.2, delay: p.delay } : { type: 'spring', duration: 0.62, bounce: 0.16, delay: p.delay }}
-                whileTap={reduce ? undefined : { scale: 0.985 }}
-                onClick={() => onSelect(p.item.lineId)}
-                aria-label={`${p.item.lineName}，${p.item.degraded ? '含待核项,' : ''}查看该险种详情`}
-                title={p.item.lineName}
-              >
-                {p.item.degraded && <span className="rp-flag" aria-hidden="true">待核</span>}
-                <span className="rp-block-inner">
-                  <span className="rp-block-name">{p.item.lineName}</span>
-                  {!small && p.item.coverageDirection && <span className="rp-block-snippet">{p.item.coverageDirection}</span>}
-                </span>
-                {!small && (
-                  <span className="rp-block-foot">
-                    <span className="rp-block-tier">{TIER_LABEL[p.item.tier] ?? p.item.tier}</span>
-                    {typeof p.item.qualityScore === 'number' && <span className="rp-block-score">可信度 {p.item.qualityScore}</span>}
-                  </span>
-                )}
-              </motion.button>
-            );
+            return <TreemapBlock key={p.item.lineId} p={p} small={small} reduce={reduce} onSelect={onSelect} />;
           })}
         </div>
 
@@ -278,9 +272,9 @@ function ReportBody({
         </AnimatePresence>
       </LayoutGroup>
 
-      <p className="rp-hint">点方块进入该险种详情。面积越大 = 越紧迫、越应优先关注;色越暖 = 越紧迫。</p>
+      <motion.p className="rp-hint" {...fadeUp(reduce)}>点方块进入该险种详情。面积越大 = 越紧迫、越应优先关注;色越暖 = 越紧迫。</motion.p>
 
-      <p className="rp-disclaimer">{proposal.disclaimer}</p>
+      <motion.p className="rp-disclaimer" {...fadeUp(reduce)}>{proposal.disclaimer}</motion.p>
 
       {/* 总览 chat:悬浮触发 + 面板 */}
       <button type="button" className="rp-chat-fab" onClick={onToggleChat} aria-expanded={chatOpen}>
@@ -300,6 +294,89 @@ function ReportBody({
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ─────────────────────────── treemap 单块(波纹点击 + 同比例内容 + 淡入上浮）───────────────────────────
+
+interface Ripple {
+  id: number;
+  x: number;
+  y: number;
+  d: number;
+}
+
+function TreemapBlock({
+  p,
+  small,
+  reduce,
+  onSelect,
+}: {
+  p: Placed;
+  small: boolean;
+  reduce: boolean;
+  onSelect: (id: string | null) => void;
+}): React.ReactElement {
+  const c = blockColor(p.item.urgency, p.item.qualityScore);
+  const [ripples, setRipples] = useState<Ripple[]>([]);
+  const nextId = useRef(0);
+
+  const spawnRipple = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (reduce) return; // 尊重 prefers-reduced-motion
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    // 直径覆盖到最远角,保证波纹铺满
+    const d = Math.hypot(Math.max(x, rect.width - x), Math.max(y, rect.height - y)) * 2;
+    setRipples((rs) => [...rs, { id: nextId.current++, x, y, d }]);
+  };
+  const endRipple = (id: number) => setRipples((rs) => rs.filter((r) => r.id !== id));
+
+  return (
+    <motion.button
+      layoutId={`rp-block-${p.item.lineId}`}
+      type="button"
+      className={`rp-block${small ? ' rp-block-sm' : ''}`}
+      style={{
+        left: p.x,
+        top: p.y,
+        width: p.w,
+        height: p.h,
+        background: c.fill,
+        boxShadow: `0 8px 26px ${c.glow}`,
+        ['--rp-s' as string]: p.scale,
+        ['--rp-snip' as string]: p.snipLines,
+      }}
+      initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: 16 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={reduce ? { duration: 0.2, delay: p.delay } : { type: 'spring', duration: 0.64, bounce: 0.16, delay: p.delay }}
+      whileTap={reduce ? undefined : { scale: 0.985 }}
+      onPointerDown={spawnRipple}
+      onClick={() => onSelect(p.item.lineId)}
+      aria-label={`${p.item.lineName}，${p.item.degraded ? '含待核项,' : ''}查看该险种详情`}
+      title={p.item.lineName}
+    >
+      {ripples.map((r) => (
+        <span
+          key={r.id}
+          className="rp-ripple"
+          style={{ left: r.x, top: r.y, width: r.d, height: r.d }}
+          onAnimationEnd={() => endRipple(r.id)}
+          aria-hidden="true"
+        />
+      ))}
+      {p.item.degraded && <span className="rp-flag" aria-hidden="true">待核</span>}
+      <span className="rp-block-inner">
+        <span className="rp-block-name">{p.item.lineName}</span>
+        {!small && p.item.coverageDirection && <span className="rp-block-snippet">{p.item.coverageDirection}</span>}
+      </span>
+      {!small && (
+        <span className="rp-block-foot">
+          <span className="rp-block-tier">{TIER_LABEL[p.item.tier] ?? p.item.tier}</span>
+          {typeof p.item.qualityScore === 'number' && <span className="rp-block-score">可信度 {p.item.qualityScore}</span>}
+        </span>
+      )}
+    </motion.button>
   );
 }
 
