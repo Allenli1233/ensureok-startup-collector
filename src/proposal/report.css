@@ -181,31 +181,75 @@
   margin-bottom: clamp(14px, 2vw, 22px);
 }
 
-.rp-stage {
+/* ── 组计数 chip 一排(强制 N · 高优先 N · 建议 N,复用固定文案;计数用 NumberTicker)── */
+.rp-groupbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: clamp(12px, 1.8vw, 18px);
+}
+.rp-groupchip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--rp-paper);
+  background: rgba(251, 246, 240, 0.07);
+  border: 1px solid var(--rp-line);
+  border-radius: 999px;
+}
+.rp-groupchip-n {
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.rp-groupchip-total {
+  background: rgba(251, 246, 240, 0.12);
+}
+.rp-groupchip-mandatory {
+  border-color: rgba(172, 75, 46, 0.55);
+}
+.rp-groupchip-high {
+  border-color: rgba(133, 96, 49, 0.55);
+}
+
+/* ── Bento CSS Grid:hero 2×2 + 其余按权重派 span;dense 自动回填空洞 ── */
+.rp-bento {
   position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: clamp(132px, 15vw, 160px);
+  grid-auto-flow: row dense;
+  gap: 12px;
   width: 100%;
 }
-
-.rp-grouplabel {
-  position: absolute;
-  z-index: 5;
-  pointer-events: none;
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 11px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--rp-paper);
-  background: rgba(26, 19, 15, 0.94);
-  border: 1px solid rgba(251, 241, 233, 0.18);
-  border-radius: 999px;
-  box-shadow: 0 2px 10px rgba(10, 6, 3, 0.45);
+.rp-bento-narrow {
+  grid-template-columns: repeat(2, 1fr);
+}
+@media (max-width: 720px) {
+  .rp-bento {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
-/* ── treemap 方块 ── */
-.rp-block {
+/* WebGL 水波纹背景 canvas:铺满 Bento、pointer-events:none、置于方块之下 */
+.rp-ripple-canvas {
   position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  pointer-events: none;
+}
+
+/* ── Bento 单格 ── */
+.rp-cell {
+  position: relative;
+  z-index: 1; /* 盖在水波纹 canvas 之上 */
   overflow: hidden;
   appearance: none;
   border: none;
@@ -223,28 +267,29 @@
   font-family: var(--font-sans);
   transition: filter 220ms var(--rp-ease), box-shadow 220ms var(--rp-ease);
 }
-
-/* 波纹点击(ripple):从点击点扩散,只动 transform/opacity,GPU 加速 */
-.rp-ripple {
-  position: absolute;
-  z-index: 1;
-  border-radius: 50%;
-  transform: translate(-50%, -50%) scale(0);
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 68%);
-  pointer-events: none;
-  animation: rpRipple 560ms var(--rp-ease) forwards;
+.rp-cell-2x2 {
+  grid-column: span 2;
+  grid-row: span 2;
 }
-@keyframes rpRipple {
-  from {
-    transform: translate(-50%, -50%) scale(0);
-    opacity: 0.55;
-  }
-  to {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 0;
+.rp-cell-2x1 {
+  grid-column: span 2;
+  grid-row: span 1;
+}
+.rp-cell-1x2 {
+  grid-column: span 1;
+  grid-row: span 2;
+}
+.rp-cell-1x1 {
+  grid-column: span 1;
+  grid-row: span 1;
+}
+/* 窄屏 2 列:任何 colSpan 天然 ≤ 2;仅需保证 2x2 不横向溢出(span 2 = 整宽)。 */
+@media (max-width: 720px) {
+  .rp-cell-2x2 {
+    grid-column: span 2;
   }
 }
-.rp-block::before {
+.rp-cell::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -252,15 +297,15 @@
   background: linear-gradient(157deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 44%);
   pointer-events: none;
 }
-.rp-block:focus-visible {
+.rp-cell:focus-visible {
   outline: 2px solid var(--rp-paper);
   outline-offset: 2px;
 }
-.rp-block:active {
+.rp-cell:active {
   filter: brightness(0.97);
 }
 @media (hover: hover) and (pointer: fine) {
-  .rp-block:hover {
+  .rp-cell:hover {
     filter: brightness(1.06);
     box-shadow: 0 16px 40px rgba(20, 12, 8, 0.42);
   }
@@ -273,7 +318,6 @@
   gap: calc(7px * min(var(--rp-s, 1), 1.5));
   min-height: 0;
   min-width: 0;
-  padding-top: 20px; /* 让出组标签高度 */
 }
 .rd-name {
   text-wrap: balance;
@@ -336,17 +380,14 @@
   border-radius: 999px;
   padding: 1px 7px;
 }
-.rp-block-sm .rp-block-inner {
-  padding-top: 18px;
-}
-.rp-block-sm .rp-block-name {
+.rp-cell-sm .rp-block-name {
   font-size: 12.5px;
   line-height: 1.24;
 }
-.rp-block-sm:has(.rp-flag) .rp-block-name {
+.rp-cell-sm:has(.rp-flag) .rp-block-name {
   padding-right: 34px;
 }
-.rp-block-sm .rp-flag {
+.rp-cell-sm .rp-flag {
   width: 8px;
   height: 8px;
   padding: 0;
@@ -377,6 +418,12 @@
   overflow: hidden;
   box-shadow: 0 40px 120px rgba(10, 6, 3, 0.6);
   display: flex;
+}
+/* 详情内容层:emil 流体收束(scale/blur),外层 layoutId 负责位置/尺寸 morph */
+.rd-fluid {
+  display: flex;
+  width: 100%;
+  transform-origin: 50% 42%;
 }
 .rd {
   position: relative;
@@ -873,11 +920,10 @@
 /* ── 减少动效 ── */
 @media (prefers-reduced-motion: reduce) {
   .rp-scan span,
-  .rc-typing span,
-  .rp-ripple {
+  .rc-typing span {
     animation: none;
   }
-  .rp-block,
+  .rp-cell,
   .rp-close,
   .rp-retry,
   .rc-chip,
