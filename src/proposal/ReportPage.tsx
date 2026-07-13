@@ -1,42 +1,17 @@
-/**
- * 保障体检报告 —— 独立的全屏「体检舱」页面(进入即换页,电影级过渡)。
- *
- * 设计取向(design-taste-frontend + emil-design-eng):
- *   - 布局:Bento CSS Grid(bentoLayout 纯函数派 span);最紧迫/最高权重险种占 2×2 hero,
- *     其余按权重比值分档(2×2 / 2×1 / 1×2 / 1×1),grid-auto-flow: dense 自动回填。窄屏降 2 列。
- *   - 背景:自写 WebGL 鼠标跟随水波纹(RippleField)铺在 Bento 层背景,pointer-events:none。
- *   - 开场:文字按阅读顺序模糊浮现(BlurInText);非金额数字向上滚动计数(NumberTicker)。
- *   - 点方块 → 共享元素(layoutId)放大成详情,内容层加 scale/blur 流体过渡(emil)。
- *   - 全部动画尊重 prefers-reduced-motion:退化为不位移的透明度过渡。
- * 不出现任何保费数字(金额只在 BlockDetail 参考价位);合规免责固定可见;PDF 打印文档不受影响。
- */
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+/** 保障体检报告。风险优先级、证据状态和下一步处理顺序共同构成主视图。 */
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { bentoLayout, type BentoRect } from './bentoLayout';
-import { blockColor, buildReportGroups } from './reportModel';
+import { blockColor, buildReportGroups, itemWeight } from './reportModel';
+import { bentoLayout } from './bentoLayout';
 import type { Proposal, ProposalItem } from './types';
 import { BlockDetailBody } from './BlockDetail';
-import { BlurInText } from './BlurInText';
 import { NumberTicker } from './NumberTicker';
 import { ReportChatPanel } from './ReportChat';
+import { RippleField } from './RippleField';
 import './report.css';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const; // 强 ease-out(emil:内建太弱)
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
-const BENTO_BP = 720; // <720px 视为窄屏(容器更高,密铺更竖)
-const BENTO_GAP = 8; // 相邻块间隙(走暗底,不再白斑)
-
-/** 容器高度:宽屏偏横、窄屏偏竖;随险种数略增高,避免块过小。铺满由 squarify 保证。 */
-function bentoHeight(width: number, count: number): number {
-  if (width <= 0 || count === 0) return 0;
-  const narrow = width < BENTO_BP;
-  const base = narrow ? width * 1.25 : width * 0.56;
-  const perItem = narrow ? count * 40 : count * 18;
-  const lo = narrow ? 420 : 380;
-  const hi = narrow ? 1200 : 760;
-  return Math.round(Math.min(hi, Math.max(lo, base + perItem)));
-}
 
 export interface ReportProposalState {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -58,11 +33,6 @@ export function ReportPage({
   const [selected, setSelected] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
 
-  // 视差:背景光晕层随 chamber 滚动以更慢速率位移(净 ~0.77×),制造纵深
-  const scrimRef = useRef<HTMLDivElement>(null);
-  const { scrollY } = useScroll({ container: scrimRef });
-  const bgY = useTransform(scrollY, [0, 700], [0, 160]);
-
   // Esc 关闭(有详情先关详情);锁背景滚动
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -82,7 +52,6 @@ export function ReportPage({
 
   return (
     <motion.div
-      ref={scrimRef}
       className="rp-scrim"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -92,7 +61,7 @@ export function ReportPage({
       aria-modal="true"
       aria-label="保障体检报告"
     >
-      <motion.div className="rp-parallax" aria-hidden="true" style={reduce ? undefined : { y: bgY }} />
+      <div className="rp-parallax" aria-hidden="true" />
       <motion.div
         className="rp-chamber"
         initial={reduce ? { opacity: 0 } : { opacity: 0, y: 26, scale: 0.985, filter: 'blur(8px)' }}
@@ -130,8 +99,11 @@ function Header({ company, onClose, onExport }: { company?: string; onClose: () 
   return (
     <header className="rp-header">
       <div className="rp-header-l">
-        {/* 开场文字模糊浮现 · 阅读顺序第一段(startDelay 0) */}
-        <BlurInText as="span" className="rp-kicker" text="保障体检报告" by="char" startDelay={0} stagger={0.04} />
+        <span className="rp-mark" aria-hidden="true">E</span>
+        <div>
+          <span className="rp-kicker">保障体检报告</span>
+          <span className="rp-edition">RISK REVIEW / 01</span>
+        </div>
         {company ? <span className="rp-company">{company}</span> : null}
       </div>
       <div className="rp-header-actions">
@@ -150,14 +122,20 @@ function Header({ company, onClose, onExport }: { company?: string; onClose: () 
 
 function ChamberLoading({ reduce }: { reduce: boolean }): React.ReactElement {
   return (
-    <div className="rp-loading">
-      <div className={`rp-scan${reduce ? ' rp-scan-static' : ''}`} aria-hidden="true">
-        <span />
-        <span />
-        <span />
+    <div className={`rp-loading rp-loading-shell${reduce ? ' rp-loading-static' : ''}`} aria-live="polite">
+      <div className="rp-skeleton-copy">
+        <span className="rp-skeleton-line rp-skeleton-eyebrow" />
+        <span className="rp-skeleton-line rp-skeleton-title" />
+        <span className="rp-skeleton-line rp-skeleton-text" />
+        <span className="rp-skeleton-line rp-skeleton-text rp-skeleton-short" />
       </div>
-      <p className="rp-loading-title">正在组装你的保障体检报告</p>
-      <p className="rp-loading-sub">结合产品库与条款检索、逐险种自检合规与忠实度,请稍候。</p>
+      <div className="rp-skeleton-map" aria-hidden="true">
+        <span /><span /><span />
+      </div>
+      <div className="rp-loading-copy">
+        <p className="rp-loading-title">正在建立风险优先级</p>
+        <p className="rp-loading-sub">正在核对产品库、条款证据与合规状态。</p>
+      </div>
     </div>
   );
 }
@@ -174,16 +152,7 @@ function ErrorState({ message, onRetry }: { message?: string; onRetry: () => voi
   );
 }
 
-// ─────────────────────────── 报告主体(Bento + 详情 + chat) ───────────────────────────
-
-interface Cell {
-  item: ProposalItem;
-  rect: BentoRect; // 绝对定位矩形(完全铺满容器)
-  scale: number; // 内容排版放大系数(∝ 块尺寸)
-  small: boolean; // 小块:隐藏承保方向摘要
-  snipLines: number; // 摘要可见行数
-  delay: number; // 错峰进场
-}
+// ─────────────────────────── 报告主体 ───────────────────────────
 
 interface GroupCount {
   key: string;
@@ -208,19 +177,6 @@ function ReportBody({
   chatOpen: boolean;
   onToggleChat: () => void;
 }): React.ReactElement {
-  const [width, setWidth] = useState(0);
-  const roRef = useRef<ResizeObserver | null>(null);
-  const stageRef = useCallback((el: HTMLDivElement | null) => {
-    roRef.current?.disconnect();
-    roRef.current = null;
-    if (!el) return;
-    setWidth(el.clientWidth);
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
-    ro.observe(el);
-    roRef.current = ro;
-  }, []);
-
   const itemById = useMemo(() => new Map(proposal.items.map((it) => [it.lineId, it])), [proposal.items]);
 
   // 组计数(强制 / 高优先 / 建议),复用 buildReportGroups 的固定顺序与文案
@@ -229,30 +185,7 @@ function ReportBody({
     [proposal.items],
   );
 
-  const bentoH = useMemo(() => bentoHeight(width, proposal.items.length), [width, proposal.items.length]);
-
-  const cells = useMemo<Cell[]>(() => {
-    const groups = buildReportGroups(proposal.items);
-    if (groups.length === 0 || width <= 0 || bentoH <= 0) return [];
-    // 各组 nodes 按传入顺序展开成扁平序列(每项已带 weight);order = 展开序
-    const flat: { id: string; weight: number; order: number }[] = [];
-    let order = 0;
-    for (const g of groups) for (const n of g.nodes) flat.push({ id: n.id, weight: n.weight, order: order++ });
-
-    const rects = bentoLayout(flat, { width, height: bentoH }, { gap: BENTO_GAP });
-
-    return rects
-      .map((rect, i) => {
-        const item = itemById.get(rect.id);
-        if (!item) return null;
-        const side = Math.sqrt(rect.w * rect.h);
-        const scale = clamp(Math.round((side / 300) * 100) / 100, 1, 1.5);
-        const small = rect.w < 150 || rect.h < 108; // 太小 → 只显名,不显摘要
-        const snipLines = rect.h > 300 ? 6 : rect.h > 210 ? 4 : rect.h > 150 ? 3 : 2;
-        return { item, rect, scale, small, snipLines, delay: i * 0.04 };
-      })
-      .filter((c): c is Cell => c !== null);
-  }, [proposal.items, width, bentoH, itemById]);
+  const needsReview = proposal.items.filter((item) => item.degraded || item.evidenceInsufficient).length;
 
   const selectedItem = selected ? itemById.get(selected) : undefined;
 
@@ -271,68 +204,99 @@ function ReportBody({
 
   return (
     <div className="rp-body">
-      {/* 摘要 · 阅读顺序第二段 */}
-      <BlurInText as="div" className="rp-summary" text={proposal.clientSummary} by="line" startDelay={0.15} stagger={0.05} />
-
-      {/* 组计数 chip 一排 · 阅读顺序第三段;计数用 NumberTicker(非金额) */}
-      <div className="rp-groupbar">
-        <span className="rp-groupchip rp-groupchip-total">
-          <NumberTicker value={proposal.items.length} className="rp-groupchip-n" />
-          <BlurInText as="span" className="rp-groupchip-lab" text="项待关注" startDelay={0.28} />
-        </span>
-        {groupCounts.map((g, i) => (
-          <span key={g.key} className={`rp-groupchip rp-groupchip-${g.key}`}>
-            <BlurInText as="span" className="rp-groupchip-lab" text={g.label} startDelay={0.28 + (i + 1) * 0.06} />
-            <NumberTicker value={g.count} className="rp-groupchip-n" />
-          </span>
-        ))}
-      </div>
+      <section className="rp-overview" aria-labelledby="rp-overview-title">
+        <div className="rp-overview-copy">
+          <span className="rp-section-index">评估结论</span>
+          <h1 id="rp-overview-title" className="rp-overview-title" aria-label="先处理必须守住的底线">
+            <span>先处理必须</span><span className="rp-title-second">守住的底线</span>
+          </h1>
+          <p className="rp-summary">{proposal.clientSummary}</p>
+        </div>
+        <dl className="rp-metrics" aria-label="报告摘要指标">
+          <div className="rp-metric rp-metric-primary">
+            <dt>待关注风险</dt>
+            <dd><NumberTicker value={proposal.items.length} /><small>项</small></dd>
+          </div>
+          <div className="rp-metric">
+            <dt>强制事项</dt>
+            <dd><NumberTicker value={groupCounts.find((g) => g.key === 'mandatory')?.count ?? 0} /><small>项</small></dd>
+          </div>
+          <div className="rp-metric">
+            <dt>高优先风险</dt>
+            <dd><NumberTicker value={groupCounts.find((g) => g.key === 'high')?.count ?? 0} /><small>项</small></dd>
+          </div>
+          <div className="rp-metric">
+            <dt>需要人工复核</dt>
+            <dd><NumberTicker value={needsReview} /><small>项</small></dd>
+          </div>
+        </dl>
+      </section>
 
       <PrintDoc proposal={proposal} />
 
       <LayoutGroup>
-        <div className="rp-bento" ref={stageRef} style={{ height: bentoH || 360 }}>
-          {cells.map((c) => {
-            // 绝对定位密铺:选中项让位给 layoutId 形变,无需占位(兄弟不回流)
-            if (selected === c.item.lineId) return null;
-            return <BentoCell key={c.item.lineId} c={c} reduce={reduce} onSelect={onSelect} />;
-          })}
-          {/* 水波纹暂时摘除:WebGL canvas 在部分显卡上渲染成不透明白色、盖住方块。
-              待换成更稳的实现(CSS 或调好的 canvas)再加回。 */}
-        </div>
+        <section className="rp-landscape" aria-labelledby="rp-landscape-title">
+          <div className="rp-section-head">
+            <div>
+              <span className="rp-section-index">风险热力图</span>
+              <h2 id="rp-landscape-title">把资源先放在最重要的风险上</h2>
+            </div>
+            <p>面积越大，处理优先级越高；颜色越暖，风险越紧迫。点击任一风险查看完整说明。</p>
+          </div>
+          <RiskHeatmap items={proposal.items} selected={selected} reduce={reduce} onSelect={onSelect} />
+          <div className="rp-heatmap-legend" aria-label="热力图图例">
+            <span><i className="rp-legend-dot rp-legend-mandatory" />强制处理</span>
+            <span><i className="rp-legend-dot rp-legend-high" />高优先</span>
+            <span><i className="rp-legend-dot rp-legend-advice" />建议完善</span>
+            <em>方块面积 = 相对处理优先级</em>
+          </div>
+        </section>
 
         <AnimatePresence>
           {selectedItem && (
-            <motion.div
-              key={selectedItem.lineId}
-              layoutId={`rp-block-${selectedItem.lineId}`}
-              className="rp-detail"
-              style={{ background: blockColor(selectedItem.urgency, selectedItem.qualityScore).fill }}
-              transition={{ type: 'spring', duration: reduce ? 0.2 : 0.55, bounce: reduce ? 0 : 0.12 }}
-            >
-              {/* emil 流体感:内容层做 scale/blur 收束,外层 layout 负责位置/尺寸 morph */}
+            <>
+              <motion.button
+                key={`${selectedItem.lineId}-backdrop`}
+                type="button"
+                className="rp-detail-backdrop"
+                aria-label={`关闭${selectedItem.lineName}详情`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: reduce ? 0.1 : 0.22 }}
+                onClick={() => onSelect(null)}
+              />
               <motion.div
-                className="rd-fluid"
-                initial={reduce ? { opacity: 0 } : { opacity: 0.6, scale: 0.96, filter: 'blur(6px)' }}
-                animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                exit={reduce ? { opacity: 0 } : { opacity: 0.6, scale: 0.98, filter: 'blur(4px)' }}
-                transition={{ duration: reduce ? 0.2 : 0.4, ease: EASE_OUT }}
+                key={selectedItem.lineId}
+                layoutId={`rp-block-${selectedItem.lineId}`}
+                className="rp-detail"
+                style={{ background: blockColor(selectedItem.urgency).fill }}
+                transition={{ type: 'spring', duration: reduce ? 0.2 : 0.55, bounce: reduce ? 0 : 0.12 }}
+                role="dialog"
+                aria-modal="true"
+                aria-label={`${selectedItem.lineName}风险详情`}
               >
-                <BlockDetailBody item={selectedItem} taskId={taskId} onClose={() => onSelect(null)} />
+                <motion.div
+                  className="rd-fluid"
+                  initial={reduce ? { opacity: 0 } : { opacity: 0.75, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={reduce ? { opacity: 0 } : { opacity: 0.7, scale: 0.99 }}
+                  transition={{ duration: reduce ? 0.15 : 0.32, ease: EASE_OUT }}
+                >
+                  <BlockDetailBody
+                    item={selectedItem}
+                    company={proposal.meta.company}
+                    taskId={taskId}
+                    onClose={() => onSelect(null)}
+                  />
+                </motion.div>
               </motion.div>
-            </motion.div>
+            </>
           )}
         </AnimatePresence>
       </LayoutGroup>
 
-      {/* 提示 · 阅读顺序第四段 */}
-      <BlurInText
-        as="p"
-        className="rp-hint"
-        text="点方块进入该险种详情。块越大 = 越紧迫、越应优先关注;色越暖 = 越紧迫。"
-        by="line"
-        startDelay={0.4}
-      />
+      <p className="rp-hint">选择任一险种查看承保方向、条款证据与产品库匹配结果。</p>
 
       <p className="rp-disclaimer">{proposal.disclaimer}</p>
 
@@ -357,59 +321,110 @@ function ReportBody({
   );
 }
 
-// ─────────────────────────── Bento 单格 ───────────────────────────
+// ─────────────────────────── 风险热力图 ───────────────────────────
 
-function BentoCell({
-  c,
+function RiskHeatmap({
+  items,
+  selected,
   reduce,
   onSelect,
 }: {
-  c: Cell;
+  items: ProposalItem[];
+  selected: string | null;
   reduce: boolean;
   onSelect: (id: string | null) => void;
 }): React.ReactElement {
-  const { item, rect, scale, small, snipLines, delay } = c;
-  const color = blockColor(item.urgency, item.qualityScore);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(1100);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const update = () => setWidth(Math.max(280, Math.round(host.clientWidth || 1100)));
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  const height = width < 560
+    ? Math.max(1200, items.length * 175)
+    : width < 900
+      ? Math.max(1020, items.length * 135)
+      : Math.max(860, items.length * 112);
+  const rects = useMemo(
+    () => bentoLayout(
+      items.map((item, order) => ({ id: item.lineId, weight: itemWeight(item), order })),
+      { width, height },
+      { gap: width < 560 ? 8 : 12 },
+    ),
+    [height, items, width],
+  );
+  const itemById = useMemo(() => new Map(items.map((item) => [item.lineId, item])), [items]);
 
   return (
-    <motion.button
-      layoutId={`rp-block-${item.lineId}`}
-      type="button"
-      className={`rp-cell${rect.rank === 0 ? ' rp-cell-hero' : ''}${small ? ' rp-cell-sm' : ''}`}
-      style={{
-        left: rect.x,
-        top: rect.y,
-        width: rect.w,
-        height: rect.h,
-        background: color.fill,
-        boxShadow: `0 8px 26px ${color.glow}`,
-        ['--rp-s' as string]: scale,
-        ['--rp-snip' as string]: snipLines,
-      }}
-      initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: 16 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={reduce ? { duration: 0.2, delay } : { type: 'spring', duration: 0.64, bounce: 0.16, delay }}
-      whileTap={reduce ? undefined : { scale: 0.985 }}
-      onClick={() => onSelect(item.lineId)}
-      aria-label={`${item.lineName}，${item.degraded ? '含待核项,' : ''}查看该险种详情`}
-      title={item.lineName}
-    >
-      {item.degraded && <span className="rp-flag" aria-hidden="true">待核</span>}
-      <span className="rp-block-inner">
-        <span className="rp-block-name">{item.lineName}</span>
-        {!small && item.coverageDirection && <span className="rp-block-snippet">{item.coverageDirection}</span>}
-      </span>
-      {!small && (
-        <span className="rp-block-foot">
-          <span className="rp-block-tier">{TIER_LABEL[item.tier] ?? item.tier}</span>
-          {typeof item.qualityScore === 'number' && (
-            <span className="rp-block-score">
-              可信度 <NumberTicker value={item.qualityScore} />
+    <div ref={hostRef} className="rp-bento rp-heatmap" style={{ height }}>
+      {rects.map((rect, index) => {
+        const item = itemById.get(rect.id);
+        if (!item || item.lineId === selected) return null;
+        const compact = rect.w < 300 || rect.h < 230;
+        const tiny = rect.w < 210 || rect.h < 165;
+        const riskText = item.gapTitles.length > 0
+          ? item.gapTitles.join('、')
+          : item.coverageDirection || `${item.lineName}相关风险需要进一步核实。`;
+        const relationText = item.rationale || `该风险与企业当前业务和经营安排有关，需要结合实际情况确认暴露程度。`;
+        return (
+          <motion.button
+            key={item.lineId}
+            layoutId={`rp-block-${item.lineId}`}
+            type="button"
+            className={`rp-cell rp-heat-cell rp-heat-${item.urgency}${compact ? ' rp-heat-compact' : ''}${tiny ? ' rp-heat-tiny' : ''}`}
+            style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, background: blockColor(item.urgency).fill }}
+            initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.975 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: reduce ? 0.15 : 0.4, ease: EASE_OUT, delay: Math.min(index * 0.035, 0.24) }}
+            whileTap={reduce ? undefined : { scale: 0.992 }}
+            onClick={() => onSelect(item.lineId)}
+            aria-label={`${item.lineName}，${URGENCY_LABEL[item.urgency] ?? item.urgency}，参考价格${item.pricing.display || '待询价'}，查看详情`}
+            data-risk-trigger="true"
+            data-risk-id={item.lineId}
+          >
+            <span className="rp-heat-top">
+              <span className="rp-heat-tier">
+                {URGENCY_LABEL[item.urgency] ?? item.urgency} / {TIER_LABEL[item.tier] ?? item.tier}
+              </span>
+              <span className="rp-heat-arrow" aria-hidden="true">↗</span>
             </span>
-          )}
-        </span>
-      )}
-    </motion.button>
+            <strong className="rp-heat-name">{item.lineName}</strong>
+            <span className="rp-heat-facts">
+              <span className="rp-heat-fact">
+                <span className="rp-heat-fact-label">有什么风险</span>
+                <span className="rp-heat-fact-value">{riskText}</span>
+              </span>
+              <span className="rp-heat-fact">
+                <span className="rp-heat-fact-label">为什么和你有关</span>
+                <span className="rp-heat-fact-value">{relationText}</span>
+              </span>
+              <span className="rp-heat-fact">
+                <span className="rp-heat-fact-label">建议怎么处理</span>
+                <span className="rp-heat-fact-value">
+                  {item.coverageDirection || `结合实际业务确认${item.lineName}的责任范围、赔偿限额和除外约定。`}
+                </span>
+              </span>
+            </span>
+            <span className="rp-heat-foot">
+              <span>
+                <span className="rp-heat-price-label">大概要多少钱</span>
+                <strong className="rp-heat-price">{item.pricing.display || '待询价'}</strong>
+              </span>
+              <span className="rp-heat-action">查看完整说明</span>
+            </span>
+          </motion.button>
+        );
+      })}
+      <RippleField />
+    </div>
   );
 }
 
@@ -424,7 +439,7 @@ function PrintDoc({ proposal }: { proposal: Proposal }): React.ReactElement | nu
     <div className="rp-print">
       <h1 className="rp-print-title">保障体检报告</h1>
       <p className="rp-print-meta">
-        {proposal.meta.company ? `${proposal.meta.company} · ` : ''}
+        {proposal.meta.company ? `${proposal.meta.company} / ` : ''}
         {proposal.clientSummary}
       </p>
       {proposal.items.map((it) => {
@@ -434,14 +449,13 @@ function PrintDoc({ proposal }: { proposal: Proposal }): React.ReactElement | nu
             <h2 className="rp-print-h2">
               {it.lineName}
               <span className="rp-print-badge">
-                {URGENCY_LABEL[it.urgency] ?? it.urgency} · {TIER_LABEL[it.tier] ?? it.tier}
-                {typeof it.qualityScore === 'number' ? ` · 可信度 ${it.qualityScore}` : ''}
+                {URGENCY_LABEL[it.urgency] ?? it.urgency} / {TIER_LABEL[it.tier] ?? it.tier}
               </span>
             </h2>
             {it.coverageDirection && (
-              <p className="rp-print-p"><b>承保方向:</b>{it.coverageDirection}</p>
+              <p className="rp-print-p"><b>风险详细解释:</b>{it.coverageDirection}</p>
             )}
-            {it.rationale && <p className="rp-print-p"><b>为什么推荐:</b>{it.rationale}</p>}
+            {it.rationale && <p className="rp-print-p"><b>与公司有关的说明:</b>{it.rationale}</p>}
             {clauses.length > 0 && (
               <div className="rp-print-p">
                 <b>条款要点:</b>
@@ -456,7 +470,7 @@ function PrintDoc({ proposal }: { proposal: Proposal }): React.ReactElement | nu
             {it.recommendedProducts.length > 0 && (
               <p className="rp-print-p">
                 <b>产品库在售保司:</b>
-                {it.recommendedProducts.slice(0, 3).map((r) => r.insurer).join('、')}
+                {it.recommendedProducts.map((r) => r.insurer).join('、')}
               </p>
             )}
           </section>
