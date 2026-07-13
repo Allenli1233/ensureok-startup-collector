@@ -110,4 +110,40 @@ describe('generateProposal (stub 端到端)', () => {
     expect(proposal.meta.generatedAt).toBe('STAMP');
     expect(proposal.disclaimer).toContain('不销售保险产品');
   });
+
+  it('RAG 索引为空时使用结构化产品库证据,不退回无依据模板', async () => {
+    const stub = new StubEmbeddingProvider();
+    const emptyStore = new JsonVectorStore({ model: stub.model, dimensions: stub.dimensions, builtWith: stub.id });
+    const chat = {
+      id: 'fixed',
+      model: 'fixed',
+      async complete() {
+        return JSON.stringify({
+          coverageDirection: '员工发生工伤后可能形成雇主赔偿责任,需核对责任范围与除外约定。',
+          rationale: '企业已有员工且当前缺少对应保障,该风险与用工安排直接相关。',
+          keyClauses: [{ text: '适用场景为有员工企业', evidence: ['E1'], clauseType: '责任' }],
+        });
+      },
+      async completeWithTools() {
+        return { content: '', toolCalls: [], finishReason: 'stop' as const };
+      },
+    };
+    const proposal = await generateProposal(req, {
+      catalogs: new Map<InsuranceLineId, ProductCatalog>([['employer_liability', makeCatalog()]]),
+      ragStore: emptyStore,
+      embedding: stub,
+      chat,
+      generatedAt: 'T',
+    });
+
+    const item = proposal.items[0];
+    expect(item.evidenceInsufficient).toBe(false);
+    expect(item.citations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceFile: '保险产品数据库/01-雇主责任险/雇主责任险产品数据.md',
+        docCategory: '结构化产品库',
+      }),
+    ]));
+    expect(item.keyClausesDetailed?.[0].evidenceRefs[0]).toMatch(/^catalog:employer_liability:/);
+  });
 });

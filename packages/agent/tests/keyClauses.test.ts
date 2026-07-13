@@ -103,10 +103,37 @@ describe('PR3 keyClauses 结构升级', () => {
     expect(p.items[0].keyClauses).toEqual(['要点一', '要点二']);
   });
 
+  it('条款要点最多保留 5 条,避免模型越界撑爆报告', async () => {
+    const chat = fixedChat(Array.from({ length: 7 }, (_, i) => `要点${i + 1}`));
+    const p = await generateProposal(req, await deps(chat));
+    expect(p.items[0].keyClauses).toHaveLength(5);
+  });
+
   it('callsUsed:统计本险种实际 LLM 调用数(loop 关时=1)', async () => {
     const chat = new StubChatProvider() as ChatProvider;
     const p = await generateProposal(req, await deps(chat));
     expect(p.items[0].callsUsed).toBe(1);
+  });
+
+  it('AI 首次返回非法 JSON 时重试一次,不静默生成占位报告', async () => {
+    let calls = 0;
+    const chat = fixedChat([]);
+    chat.complete = async () => {
+      calls++;
+      return calls === 1
+        ? 'not-json'
+        : JSON.stringify({ coverageDirection: '有依据的保障方向', rationale: '与企业画像直接相关', keyClauses: [] });
+    };
+    const p = await generateProposal(req, await deps(chat));
+    expect(calls).toBe(2);
+    expect(p.items[0].coverageDirection).toBe('有依据的保障方向');
+    expect(p.items[0].callsUsed).toBe(2);
+  });
+
+  it('AI 连续返回非法结果时让任务失败,不把模板冒充真实分析', async () => {
+    const chat = fixedChat([]);
+    chat.complete = async () => 'not-json';
+    await expect(generateProposal(req, await deps(chat))).rejects.toThrow('AI 生成失败');
   });
 
   it('gap:rationaleDrivers(缺口/画像/条款锚点)+ recommendedProducts.matchReason 已产出', async () => {

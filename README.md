@@ -94,13 +94,14 @@ npm run frontend              # 前端    → http://localhost:5273(vite;已 pro
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| `OPENAI_API_KEY` | LLM / 嵌入的 key(**只在后端读**) | 必填(否则走 stub) |
+| `OPENAI_API_KEY` | LLM / 嵌入的 key(**只在后端读**) | 必填；用户报告禁止静默回退 stub |
 | `OPENAI_BASE_URL` | OpenAI 兼容网关(含 `/v1`) | `https://api.openai.com/v1` |
-| `OPENAI_CHAT_MODEL` | 生成用对话模型 | `gpt-4o-mini` |
-| `OPENAI_QA_MODEL` | 报告解读 Chat 用的模型(可设更快的小模型;缺省复用 chat) | 空 |
+| `OPENAI_CHAT_MODEL` / `LLM_MODEL` | 生成用对话模型；后者兼容 baoduile | `gpt-4o-mini` |
+| `OPENAI_QA_MODEL` / `LLM_FAST_MODEL` | 报告解读 Chat 用的模型；缺省复用生成模型 | 空 |
 | `AGENT_PORT` | 后端端口 | `8787` |
 | `ADV_LOOP` | `1` 开启对抗式生成(judge+重写,更慢更稳) | 关 |
 | `AGENT_TARGET` | 前端 dev proxy 的后端地址 | `http://localhost:8787` |
+| `ALLOW_STUB_AI` | 仅自动化测试/离线开发允许桩模型 | 关 |
 
 > `.env` 已被 git 忽略;`packages/rag/data/rag-index.json`(92MB)亦忽略,克隆后用 `npm run rag:ingest` 重建。
 

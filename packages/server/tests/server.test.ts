@@ -85,9 +85,12 @@ describe('agent server', () => {
     const port = await listen(server);
     const r = await fetch(`http://127.0.0.1:${port}/health`);
     expect(r.status).toBe(200);
-    const j = (await r.json()) as { ok: boolean; catalogs: number };
+    const j = (await r.json()) as { ok: boolean; catalogs: number; aiProvider: string; aiModel: string; embeddingProvider: string };
     expect(j.ok).toBe(true);
     expect(j.catalogs).toBe(1);
+    expect(j.aiProvider).toBe('stub');
+    expect(j.aiModel).toBe('stub-chat');
+    expect(j.embeddingProvider).toBe('stub');
   });
 
   it('POST 建任务 → 轮询 → ready(注入时钟透传)', async () => {

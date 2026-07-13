@@ -23,8 +23,11 @@ export async function loadDeps(): Promise<ServerDeps> {
   // 对抗式 loop 默认关闭;ADV_LOOP=1 开启(judge 用异构模型)
   const loopOn = process.env.ADV_LOOP === '1';
   const chat = createChatProvider();
+  if (chat.id === 'stub' && process.env.ALLOW_STUB_AI !== '1') {
+    throw new Error('未配置真实 AI。请设置 OPENAI_API_KEY；仅自动化测试可显式设置 ALLOW_STUB_AI=1。');
+  }
   // 报告解读 chat 可用更快的小模型:设 OPENAI_QA_MODEL 即启用;缺省复用生成用的 chat
-  const qaModel = process.env.OPENAI_QA_MODEL;
+  const qaModel = process.env.OPENAI_QA_MODEL ?? process.env.LLM_FAST_MODEL;
   const qaChat = qaModel ? createChatProvider({ ...process.env, OPENAI_CHAT_MODEL: qaModel }) : chat;
   return {
     catalogs,
