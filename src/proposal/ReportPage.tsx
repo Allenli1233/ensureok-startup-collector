@@ -2,7 +2,7 @@
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { blockColor, buildReportGroups, itemWeight } from './reportModel';
+import { blockColor, buildReportGroups, heatmapColor, itemWeight, mixHex } from './reportModel';
 import { bentoLayout } from './bentoLayout';
 import type { Proposal, ProposalItem } from './types';
 import { BlockDetailBody } from './BlockDetail';
@@ -31,14 +31,12 @@ export function ReportPage({
 }): React.ReactElement {
   const reduce = useReducedMotion();
   const [selected, setSelected] = useState<string | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
 
   // Esc 关闭(有详情先关详情);锁背景滚动
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (selected) setSelected(null);
-      else if (chatOpen) setChatOpen(false);
       else onClose();
     };
     document.addEventListener('keydown', onKey);
@@ -48,7 +46,7 @@ export function ReportPage({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [selected, chatOpen, onClose]);
+  }, [selected, onClose]);
 
   return (
     <motion.div
@@ -64,9 +62,9 @@ export function ReportPage({
       <div className="rp-parallax" aria-hidden="true" />
       <motion.div
         className="rp-chamber"
-        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 26, scale: 0.985, filter: 'blur(8px)' }}
-        animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
-        exit={reduce ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.99, filter: 'blur(6px)' }}
+        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 26, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={reduce ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.99 }}
         transition={{ duration: reduce ? 0.15 : 0.62, ease: EASE_OUT }}
       >
         <Header
@@ -86,8 +84,6 @@ export function ReportPage({
             reduce={!!reduce}
             selected={selected}
             onSelect={setSelected}
-            chatOpen={chatOpen}
-            onToggleChat={() => setChatOpen((v) => !v)}
           />
         ) : null}
       </motion.div>
@@ -166,16 +162,12 @@ function ReportBody({
   reduce,
   selected,
   onSelect,
-  chatOpen,
-  onToggleChat,
 }: {
   proposal: Proposal;
   taskId?: string;
   reduce: boolean;
   selected: string | null;
   onSelect: (id: string | null) => void;
-  chatOpen: boolean;
-  onToggleChat: () => void;
 }): React.ReactElement {
   const itemById = useMemo(() => new Map(proposal.items.map((it) => [it.lineId, it])), [proposal.items]);
 
@@ -241,14 +233,15 @@ function ReportBody({
               <span className="rp-section-index">风险热力图</span>
               <h2 id="rp-landscape-title">把资源先放在最重要的风险上</h2>
             </div>
-            <p>面积越大，处理优先级越高；颜色越暖，风险越紧迫。点击任一风险查看完整说明。</p>
+            <p>面积越大，处理优先级越高；颜色由红到浅，依次表示优先级降低。点击任一风险查看完整说明。</p>
           </div>
           <RiskHeatmap items={proposal.items} selected={selected} reduce={reduce} onSelect={onSelect} />
           <div className="rp-heatmap-legend" aria-label="热力图图例">
-            <span><i className="rp-legend-dot rp-legend-mandatory" />强制处理</span>
-            <span><i className="rp-legend-dot rp-legend-high" />高优先</span>
-            <span><i className="rp-legend-dot rp-legend-advice" />建议完善</span>
-            <em>方块面积 = 相对处理优先级</em>
+            <span className="rp-legend-gradient" aria-hidden="true" />
+            <span>高优先级</span>
+            <span className="rp-legend-separator" aria-hidden="true">到</span>
+            <span>低优先级</span>
+            <em>颜色与面积共同表示相对处理优先级</em>
           </div>
         </section>
 
@@ -300,23 +293,16 @@ function ReportBody({
 
       <p className="rp-disclaimer">{proposal.disclaimer}</p>
 
-      {/* 总览 chat:悬浮触发 + 面板 */}
-      <button type="button" className="rp-chat-fab" onClick={onToggleChat} aria-expanded={chatOpen}>
-        {chatOpen ? '收起解读' : '问问这份报告'}
-      </button>
-      <AnimatePresence>
-        {chatOpen && (
-          <motion.div
-            className="rp-chat-dock"
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }}
-            transition={{ duration: reduce ? 0.15 : 0.28, ease: EASE_OUT }}
-          >
-            <ReportChatPanel taskId={taskId} scope="report" title="报告总览解读" onClose={onToggleChat} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <section className="rp-report-chat" aria-labelledby="rp-report-chat-title">
+        <div className="rp-report-chat-copy">
+          <span className="rp-section-index">报告问答</span>
+          <h2 id="rp-report-chat-title">问问这份报告</h2>
+          <p>针对风险排序、保障范围和条款依据继续提问。回答只解读当前报告，不代替持牌顾问的正式方案。</p>
+        </div>
+        <div className="rp-report-chat-panel">
+          <ReportChatPanel taskId={taskId} scope="report" title="报告解读助手" />
+        </div>
+      </section>
     </div>
   );
 }
@@ -351,8 +337,8 @@ function RiskHeatmap({
   const height = width < 560
     ? Math.max(1200, items.length * 175)
     : width < 900
-      ? Math.max(1020, items.length * 135)
-      : Math.max(860, items.length * 112);
+      ? Math.max(900, items.length * 120)
+      : Math.max(720, items.length * 96);
   const rects = useMemo(
     () => bentoLayout(
       items.map((item, order) => ({ id: item.lineId, weight: itemWeight(item), order })),
@@ -362,17 +348,37 @@ function RiskHeatmap({
     [height, items, width],
   );
   const itemById = useMemo(() => new Map(items.map((item) => [item.lineId, item])), [items]);
+  const heatRankById = useMemo(
+    () => new Map(
+      [...rects]
+        .sort((a, b) => (b.w * b.h) - (a.w * a.h) || a.id.localeCompare(b.id))
+        .map((rect, rank) => [rect.id, rank]),
+    ),
+    [rects],
+  );
 
   return (
     <div ref={hostRef} className="rp-bento rp-heatmap" style={{ height }}>
       {rects.map((rect, index) => {
         const item = itemById.get(rect.id);
         if (!item || item.lineId === selected) return null;
-        const compact = rect.w < 300 || rect.h < 230;
-        const tiny = rect.w < 210 || rect.h < 165;
-        const riskText = item.gapTitles.length > 0
-          ? item.gapTitles.join('、')
-          : item.coverageDirection || `${item.lineName}相关风险需要进一步核实。`;
+        const compact = rect.w < 500 || rect.h < 300;
+        const tiny = rect.w < 260 || rect.h < 195;
+        const heatBase = heatmapColor(heatRankById.get(item.lineId) ?? index, rects.length);
+        const heatEdge = mixHex(heatBase, '#251A17', 0.14);
+        const directionParts = item.coverageDirection
+          .split(/(?<=[。！？])/u)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const coverageLead = directionParts[0] ?? '';
+        const gapSummary = item.gapTitles.join('、');
+        const riskText = [gapSummary, coverageLead]
+          .filter(Boolean)
+          .join(gapSummary.endsWith('。') ? '' : '。')
+          || `${item.lineName}相关风险需要进一步核实。`;
+        const actionText = directionParts.slice(1).join('')
+          || item.coverageDirection
+          || `结合实际业务确认${item.lineName}的责任范围、赔偿限额和除外约定。`;
         const relationText = item.rationale || `该风险与企业当前业务和经营安排有关，需要结合实际情况确认暴露程度。`;
         return (
           <motion.button
@@ -380,7 +386,13 @@ function RiskHeatmap({
             layoutId={`rp-block-${item.lineId}`}
             type="button"
             className={`rp-cell rp-heat-cell rp-heat-${item.urgency}${compact ? ' rp-heat-compact' : ''}${tiny ? ' rp-heat-tiny' : ''}`}
-            style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, background: blockColor(item.urgency).fill }}
+            style={{
+              left: rect.x,
+              top: rect.y,
+              width: rect.w,
+              height: rect.h,
+              background: `linear-gradient(145deg, ${heatBase} 0%, ${heatEdge} 100%)`,
+            }}
             initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.975 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: reduce ? 0.15 : 0.4, ease: EASE_OUT, delay: Math.min(index * 0.035, 0.24) }}
@@ -408,9 +420,7 @@ function RiskHeatmap({
               </span>
               <span className="rp-heat-fact">
                 <span className="rp-heat-fact-label">建议怎么处理</span>
-                <span className="rp-heat-fact-value">
-                  {item.coverageDirection || `结合实际业务确认${item.lineName}的责任范围、赔偿限额和除外约定。`}
-                </span>
+                <span className="rp-heat-fact-value">{actionText}</span>
               </span>
             </span>
             <span className="rp-heat-foot">

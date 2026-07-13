@@ -18,7 +18,7 @@ type EnvLike = Record<string, string | undefined>;
 /**
  * 按环境变量选对话后端:
  *   LLM_PROVIDER=openai|stub(缺省:有 OPENAI_API_KEY 则 openai,否则 stub)
- *   OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_CHAT_MODEL(默认 gpt-4o-mini)
+ *   OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_CHAT_MODEL(兼容 baoduile 的 LLM_MODEL)
  */
 export function createChatProvider(env: EnvLike = process.env): ChatProvider {
   const provider = env.LLM_PROVIDER ?? (env.OPENAI_API_KEY ? 'openai' : 'stub');
@@ -27,7 +27,7 @@ export function createChatProvider(env: EnvLike = process.env): ChatProvider {
     return new OpenAIChatProvider({
       apiKey: env.OPENAI_API_KEY,
       baseUrl: env.OPENAI_BASE_URL,
-      model: env.OPENAI_CHAT_MODEL,
+      model: env.OPENAI_CHAT_MODEL ?? env.LLM_MODEL,
     });
   }
   if (provider === 'stub') return new StubChatProvider();

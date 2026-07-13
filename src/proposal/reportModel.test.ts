@@ -5,6 +5,7 @@ import {
   itemWeight,
   buildReportGroups,
   blockColor,
+  heatmapColor,
   mixHex,
   parseHex,
 } from './reportModel';
@@ -32,15 +33,15 @@ function mk(lineId: string, urgency: ProposalItem['urgency'], tier: ProposalItem
 
 describe('itemWeight — 紧迫度基权 × tier 系数(§3.1)', () => {
   it('基权与系数按契约取值', () => {
-    expect(URGENCY_BASE).toEqual({ mandatory: 100, high: 60, advice: 30 });
-    expect(TIER_MULT).toEqual({ tier1: 1.4, tier2: 1.2, tier3: 1.0, tier4: 0.85 });
+    expect(URGENCY_BASE).toEqual({ mandatory: 64, high: 52, advice: 40 });
+    expect(TIER_MULT).toEqual({ tier1: 1.12, tier2: 1.06, tier3: 1.0, tier4: 0.96 });
   });
 
-  it('mandatory×tier1 = 140,high×tier2 = 72,advice×tier3 = 30,advice×tier4 = 25.5', () => {
-    expect(itemWeight(mk('a', 'mandatory', 'tier1'))).toBe(140);
-    expect(itemWeight(mk('b', 'high', 'tier2'))).toBe(72);
-    expect(itemWeight(mk('c', 'advice', 'tier3'))).toBe(30);
-    expect(itemWeight(mk('d', 'advice', 'tier4'))).toBeCloseTo(25.5, 5);
+  it('使用压缩后的面积权重,同时保留紧迫度和层级差异', () => {
+    expect(itemWeight(mk('a', 'mandatory', 'tier1'))).toBeCloseTo(71.68, 5);
+    expect(itemWeight(mk('b', 'high', 'tier2'))).toBeCloseTo(55.12, 5);
+    expect(itemWeight(mk('c', 'advice', 'tier3'))).toBe(40);
+    expect(itemWeight(mk('d', 'advice', 'tier4'))).toBeCloseTo(38.4, 5);
   });
 
   it('更紧迫 / 更高层级 → 权重更大(面积更大的单调性)', () => {
@@ -66,7 +67,7 @@ describe('buildReportGroups — 分组顺序 / 空组 / 单组', () => {
     const groups = buildReportGroups(items);
     expect(groups.map((g) => g.key)).toEqual(['mandatory', 'high', 'advice']);
     expect(groups[0].nodes[0].id).toBe('man');
-    expect(groups[0].nodes[0].weight).toBe(140);
+    expect(groups[0].nodes[0].weight).toBeCloseTo(71.68, 5);
   });
 
   it('空组不产出(全部 advice → 只有一组)', () => {
@@ -92,14 +93,14 @@ describe('buildReportGroups — 分组顺序 / 空组 / 单组', () => {
   });
 });
 
-describe('blockColor — 暖→冷 + qualityScore 微调 + 缺省降级', () => {
-  it('缺 qualityScore → 用基色(强制赤陶 / 高优先陶土 / 建议冷灰褐,互不相同)', () => {
+describe('blockColor — 深红→浅灰红 + qualityScore 微调 + 缺省降级', () => {
+  it('缺 qualityScore → 使用强制深红 / 高优先正红 / 建议浅灰红,互不相同', () => {
     const man = blockColor('mandatory').fill;
     const hi = blockColor('high').fill;
     const adv = blockColor('advice').fill;
-    expect(man).toBe('#AC4B2E');
-    expect(hi).toBe('#856031');
-    expect(adv).toBe('#68625A');
+    expect(man).toBe('#9F2F2A');
+    expect(hi).toBe('#B54335');
+    expect(adv).toBe('#80635F');
     expect(new Set([man, hi, adv]).size).toBe(3);
   });
 
@@ -135,7 +136,22 @@ describe('blockColor — 暖→冷 + qualityScore 微调 + 缺省降级', () => 
   });
 
   it('未知紧迫度 → 退回 advice 基色,不崩', () => {
-    expect(blockColor('nope' as never).fill).toBe('#68625A');
+    expect(blockColor('nope' as never).fill).toBe('#80635F');
+  });
+});
+
+describe('heatmapColor — 按卡片面积排名生成连续色阶', () => {
+  it('从最大卡的红色连续过渡到最小卡的浅暖灰', () => {
+    expect(heatmapColor(0, 5)).toBe('#c44932');
+    expect(heatmapColor(2, 5)).toBe('#a65b4d');
+    expect(heatmapColor(4, 5)).toBe('#746a65');
+    expect(new Set(Array.from({ length: 5 }, (_, rank) => heatmapColor(rank, 5))).size).toBe(5);
+  });
+
+  it('单卡与越界排名均稳定降级', () => {
+    expect(heatmapColor(0, 1)).toBe('#c44932');
+    expect(heatmapColor(-2, 5)).toBe('#c44932');
+    expect(heatmapColor(99, 5)).toBe('#746a65');
   });
 });
 

@@ -4,8 +4,8 @@
  * 职责:把 ProposalItem[] 映射成 treemap 布局所需的分组 + 权重,并给出方块配色。
  * 契约(设计规格 §3.1):
  *   - 方块权重 weight = 紧迫度基权 × tier 系数。
- *   - 紧迫度基权:mandatory=100 · high=60 · advice=30。
- *   - tier 系数:tier1=1.4 · tier2=1.2 · tier3=1.0 · tier4=0.85。
+ *   - 紧迫度基权采用压缩比例,避免低优先级卡片失去可读空间。
+ *   - tier 系数只做轻量面积提示,优先保证每张卡片都能承载决策信息。
  *   - 一级分组顺序固定:强制 → 高优先 → 建议;空组不产出。
  *
  * 配色(设计规格 §3.4):画布用品牌最深墨 #2A2622;方块按紧迫度取品牌「暖→冷」阶,
@@ -16,16 +16,16 @@ import type { GapUrgency, Portfolio, ProposalItem, ProposalTier } from './types'
 // ─────────────────────────── 权重 ───────────────────────────
 
 export const URGENCY_BASE: Record<GapUrgency, number> = {
-  mandatory: 100,
-  high: 60,
-  advice: 30,
+  mandatory: 64,
+  high: 52,
+  advice: 40,
 };
 
 export const TIER_MULT: Record<ProposalTier, number> = {
-  tier1: 1.4,
-  tier2: 1.2,
+  tier1: 1.12,
+  tier2: 1.06,
   tier3: 1.0,
-  tier4: 0.85,
+  tier4: 0.96,
 };
 
 /** 单个险种的 treemap 权重(面积 ∝ 权重)。字段缺失时退回中性默认,永不返回 0/NaN。 */
@@ -80,12 +80,12 @@ export function buildReportGroups(items: ProposalItem[]): ReportGroup[] {
 
 // ─────────────────────────── 配色 ───────────────────────────
 
-/** 暖→冷:强制赤陶暖橙(最饱和)→ 高优先陶土金 → 建议冷灰褐(最克制)。
- * 已核 WCAG:白字(#fbf6f0)对比在**基色及最亮微调后仍 ≥4.5:1**(base 5.1–5.6,最亮 4.8+)。 */
+/** 深→浅:强制深红 → 高优先正红 → 建议浅灰红。
+ * 已核 WCAG:白字(#fffaf4)对比在基色上均 ≥4.5:1。 */
 const BLOCK_FILL: Record<GapUrgency, string> = {
-  mandatory: '#AC4B2E',
-  high: '#856031',
-  advice: '#68625A',
+  mandatory: '#9F2F2A',
+  high: '#B54335',
+  advice: '#80635F',
 };
 
 /** 微调锚点:高分向暖亮靠、低分向墨深靠(幅度很小) */
@@ -111,6 +111,18 @@ export function blockColor(urgency: GapUrgency, qualityScore?: number): BlockCol
     fill = t >= 0 ? mixHex(base, LIGHTEN_TARGET, t) : mixHex(base, DARKEN_TARGET, -t);
   }
   return { fill, glow: hexToRgba(fill, 0.42) };
+}
+
+/**
+ * 热力图连续色阶。rank=0 表示面积最大的卡片,随后由红色平滑过渡到浅暖灰。
+ * 颜色只编码相对处理顺序,险种紧迫度仍由卡片标签明确展示。
+ */
+export function heatmapColor(rank: number, total: number): string {
+  const position = total <= 1 ? 0 : clamp(rank / (total - 1), 0, 1);
+  if (position <= 0.5) {
+    return mixHex('#C44932', '#A65B4D', position / 0.5);
+  }
+  return mixHex('#A65B4D', '#746A65', (position - 0.5) / 0.5);
 }
 
 // ─────────────────────────── 颜色工具(纯函数) ───────────────────────────

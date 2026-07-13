@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import { createChatProvider } from '../src/llm';
 import { StubChatProvider } from '../src/llm/stub';
 import type { AssistantTurn, ChatProvider } from '../src/llm/types';
 
 const stub: ChatProvider = new StubChatProvider();
 
 describe('ChatProvider 工具接口(PR1)', () => {
+  it('兼容 baoduile 的 LLM_MODEL 配置名', () => {
+    const provider = createChatProvider({ OPENAI_API_KEY: 'test-key', LLM_MODEL: 'deepseek-v4-pro' });
+    expect(provider.id).toBe('openai');
+    expect(provider.model).toBe('deepseek-v4-pro');
+  });
+
   it('complete 仍返回纯文本(行为不变)', async () => {
     const out = await stub.complete([{ role: 'user', content: '险种:雇主责任险' }]);
     expect(typeof out).toBe('string');

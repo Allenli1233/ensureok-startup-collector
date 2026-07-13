@@ -19,7 +19,11 @@
   z-index: 1000;
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: none;
+  scrollbar-gutter: stable;
+  scroll-padding-block: 24px;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   color-scheme: dark;
   background: var(--rp-ink);
   -webkit-font-smoothing: antialiased;
@@ -645,7 +649,7 @@
 .rc-stream {
   flex: 1;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -1557,18 +1561,6 @@
     linear-gradient(180deg, transparent 56%, rgba(24, 13, 8, 0.18));
 }
 
-.rp-heat-mandatory {
-  background: #b64d2f !important;
-}
-
-.rp-heat-high {
-  background: #815839 !important;
-}
-
-.rp-heat-advice {
-  background: #66615a !important;
-}
-
 .rp-heat-top,
 .rp-heat-copy,
 .rp-heat-foot {
@@ -1617,7 +1609,7 @@
 .rp-heat-name {
   max-width: 18ch;
   font-family: Georgia, 'Songti SC', 'STSong', serif;
-  font-size: clamp(22px, 2.35vw, 34px);
+  font-size: clamp(30px, 3vw, 48px);
   font-weight: 700;
   line-height: 1.08;
   letter-spacing: -0.035em;
@@ -1678,7 +1670,7 @@
 }
 
 .rp-heat-compact .rp-heat-name {
-  font-size: clamp(18px, 2vw, 25px);
+  font-size: clamp(25px, 2.5vw, 40px);
 }
 
 .rp-heat-compact .rp-heat-summary {
@@ -1713,7 +1705,7 @@
 }
 
 .rp-heat-tiny .rp-heat-name {
-  font-size: 17px;
+  font-size: 22px;
 }
 
 .rp-heat-tiny .rp-heat-summary {
@@ -1769,20 +1761,23 @@
   gap: 7px;
 }
 
+.rp-heatmap-legend .rp-legend-gradient {
+  display: block;
+  width: clamp(120px, 18vw, 220px);
+  height: 8px;
+  border: 1px solid rgba(255, 248, 240, 0.18);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #c44932 0%, #a65b4d 50%, #746a65 100%);
+}
+
+.rp-legend-separator {
+  color: rgba(255, 248, 240, 0.38);
+}
+
 .rp-heatmap-legend em {
   margin-left: auto;
   font-style: normal;
 }
-
-.rp-legend-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.rp-legend-mandatory { background: #d96b47; }
-.rp-legend-high { background: #a57a55; }
-.rp-legend-advice { background: #837d75; }
 
 /* 二级页面：先解释企业关联，再解释风险本身。 */
 .rp-detail {
@@ -1950,7 +1945,7 @@
   }
   .rp-heat-name,
   .rp-heat-compact .rp-heat-name {
-    font-size: 18px;
+    font-size: 24px;
   }
 }
 
@@ -2033,6 +2028,9 @@
 }
 
 .rp-heat-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: flex-end;
 }
 
@@ -2045,9 +2043,15 @@
 }
 
 .rp-heat-price {
-  display: block;
+  display: -webkit-box;
   width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
   text-align: left;
+  text-overflow: clip;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .rp-heat-action {
@@ -2066,14 +2070,18 @@
 }
 
 .rp-heat-compact .rp-heat-fact {
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 7px;
+  grid-template-columns: 1fr;
+  gap: 2px;
 }
 
 .rp-heat-compact .rp-heat-fact-value {
-  font-size: 11px;
-  line-height: 1.42;
+  font-size: 11.5px;
+  line-height: 1.45;
   -webkit-line-clamp: 3;
+}
+
+.rp-heat-compact .rp-heat-foot {
+  gap: 8px;
 }
 
 .rp-heat-tiny .rp-heat-facts {
@@ -2403,5 +2411,157 @@
   .rd-jump a,
   .rp-heat-action {
     transition: none;
+  }
+}
+
+/* 报告末尾常驻问答区。内层消息流到达边界后将滚轮自然交还主报告。 */
+.rp-report-chat {
+  --rp-ink-2: #2a2521;
+  --rp-paper: #fffaf4;
+  --rp-line: rgba(255, 250, 244, 0.14);
+  display: grid;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+  gap: clamp(24px, 4vw, 56px);
+  margin-top: clamp(42px, 7vw, 86px);
+  padding: clamp(24px, 4vw, 52px);
+  border-radius: 24px;
+  background:
+    radial-gradient(75% 120% at 0 0, rgba(196, 73, 50, 0.2), transparent 58%),
+    #211d1a;
+  color: #fffaf4;
+  box-shadow: 0 24px 70px rgba(44, 29, 20, 0.16);
+}
+
+.rp-report-chat-copy {
+  align-self: start;
+  padding-top: 4px;
+}
+
+.rp-report-chat-copy .rp-section-index {
+  color: #e77960;
+}
+
+.rp-report-chat-copy h2 {
+  max-width: 8ch;
+  margin: 14px 0 18px;
+  font-family: Georgia, 'Songti SC', 'STSong', serif;
+  font-size: clamp(34px, 4vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.rp-report-chat-copy p {
+  max-width: 34ch;
+  margin: 0;
+  color: rgba(255, 250, 244, 0.68);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.rp-report-chat-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 250, 244, 0.14);
+  border-radius: 16px;
+  background: #2a2521;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.rp-report-chat-panel .rc {
+  height: clamp(360px, 42vh, 460px);
+  max-height: none;
+  border: 0;
+  background: transparent;
+}
+
+.rp-report-chat-panel .rc-stream {
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 250, 244, 0.24) transparent;
+}
+
+.rp-report-chat-panel .rc-stream::-webkit-scrollbar {
+  width: 8px;
+}
+
+.rp-report-chat-panel .rc-stream::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 250, 244, 0.24);
+  background-clip: padding-box;
+}
+
+/* 二级页必须建立完整的可收缩高度链，否则正文会在 fixed 面板内被裁切而无法滚动。 */
+.rp-detail,
+.rd-fluid,
+.rd {
+  min-height: 0;
+}
+
+/* filter 即使为 blur(0) 也会把 fixed 详情页困在长页面坐标系中。 */
+.rp-chamber {
+  filter: none !important;
+}
+
+.rp-detail {
+  height: calc(100dvh - clamp(36px, 7vh, 80px));
+  max-height: calc(100dvh - clamp(36px, 7vh, 80px));
+  box-sizing: border-box;
+}
+
+.rd-fluid,
+.rd {
+  height: 100%;
+  overflow: hidden;
+}
+
+.rd-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.rd-scroll::-webkit-scrollbar {
+  width: 9px;
+}
+
+.rd-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(73, 52, 41, 0.28);
+  background-clip: padding-box;
+}
+
+@media (max-width: 760px) {
+  .rp-report-chat {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    margin-inline: -4px;
+    padding: 22px 16px 16px;
+    border-radius: 18px;
+  }
+
+  .rp-report-chat-copy h2 {
+    max-width: none;
+    font-size: 36px;
+  }
+
+  .rp-report-chat-copy p {
+    max-width: 48ch;
+  }
+
+  .rp-report-chat-panel .rc {
+    height: 400px;
+  }
+
+  .rc-form {
+    align-items: stretch;
+  }
+
+  .rc-send {
+    min-width: 58px;
   }
 }

@@ -1,6 +1,6 @@
 import { LINE_BY_ID, type InsuranceLineId, type ProductCatalog } from '@ensureok/catalog';
 import { retrieve, type EmbeddingProvider, type JsonVectorStore, type RetrievedChunk } from '@ensureok/rag';
-import { extractLineData } from './catalogData';
+import { catalogEvidence, extractLineData } from './catalogData';
 import type { Judge, JudgeInput } from './judge';
 import type { ChatMessage, ChatProvider } from './llm/types';
 import { runPseudoToolLoop, runToolLoop } from './llm/toolRunner';
@@ -87,15 +87,24 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     progress[idx].status = 'generating';
     emit('generating');
 
-    // 1) RAG 证据(逐险种一次)
+    // 1) 证据:RAG 优先,并用结构化产品库的非价格事实补足。
+    //    即使外部 RAG 索引暂缺,也不再让 LLM 对着空上下文写模板。
     let evidence: RetrievedChunk[] = [];
+    const topK = deps.topK ?? 5;
     try {
       evidence = await retrieve(deps.ragStore, deps.embedding, `${lineName} ${p.gapTitles.join(' ')} 保险责任 保障范围 条款`, {
         insuranceLines: [lineName],
-        topK: deps.topK ?? 5,
+        topK,
       });
     } catch {
       evidence = [];
+    }
+    if (cat) {
+      const seen = new Set(evidence.map((chunk) => chunk.id));
+      for (const chunk of catalogEvidence(cat, topK)) {
+        if (!seen.has(chunk.id)) evidence.push(chunk);
+      }
+      evidence = evidence.slice(0, topK);
     }
 
     // 2) 生成叙述(可带字段锁重写)。调用计数由调用方按整轮预扣(见对抗 loop),此处不自增。
@@ -124,23 +133,31 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
         evidence,
         revise,
       });
-      try {
-        const g = await generate(messages);
-        const parsed = parseLlmJson(g.content);
-        if (parsed) {
-          return {
-            narrative: {
-              coverageDirection: asStr(parsed.coverageDirection),
-              rationale: asStr(parsed.rationale),
-              keyClauses: parseKeyClauses(parsed.keyClauses, evidenceIds),
-            },
-            calls: g.calls,
-          };
+      let calls = 0;
+      let lastError = '响应不是合法 JSON';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const g = await generate(messages);
+          calls += g.calls;
+          const parsed = parseLlmJson(g.content);
+          const coverageDirection = asStr(parsed?.coverageDirection).trim();
+          const rationale = asStr(parsed?.rationale).trim();
+          if (parsed && coverageDirection && rationale) {
+            return {
+              narrative: {
+                coverageDirection,
+                rationale,
+                keyClauses: parseKeyClauses(parsed.keyClauses, evidenceIds),
+              },
+              calls,
+            };
+          }
+          lastError = '缺少 coverageDirection 或 rationale';
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : String(error);
         }
-        return { narrative: { coverageDirection: '', rationale: '', keyClauses: [] }, calls: g.calls };
-      } catch {
-        return { narrative: { coverageDirection: '', rationale: '', keyClauses: [] }, calls: 1 };
       }
+      throw new Error(`${lineName} AI 生成失败(重试后仍${lastError})`);
     };
 
     // 3) 对抗 loop:generate → 确定性三维 + judge 两软维 → 汇总 ScoreCard → 字段锁重写 → 取最优版。
@@ -165,6 +182,7 @@ export async function generateProposal(req: ProposalRequest, deps: GenerateDeps)
     };
 
     // 一次 compose 的调用成本:tool-calling 时按最坏(maxToolSteps+1)预扣,保证 callBudget 硬顶不被突破
+    // 预算按一次有效生成预留；非法/空响应触发的单次可靠性重试不属于对抗式重写轮次。
     const composeCost = deps.enableToolCalling ? (deps.maxToolSteps ?? 6) + 1 : 1;
     budget.used += composeCost; // 首次生成(至少 1 次,不可省)
     const first = await composeNarrative();
@@ -425,7 +443,7 @@ function parseKeyClauses(raw: unknown, evidenceIds: string[]): KeyClause[] {
       out.push(clause);
     }
   }
-  return out;
+  return out.slice(0, 5);
 }
 
 /** 有序并发映射:最多 limit 个并发执行 fn,返回结果保持输入顺序。 */

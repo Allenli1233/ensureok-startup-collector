@@ -17,7 +17,7 @@ export interface ServerDeps extends Omit<GenerateDeps, 'generatedAt'> {
  * 异步任务 API:
  *   POST /agent/proposals        → 202 { taskId, status }  然后后台跑生成
  *   GET  /agent/proposals/:id     → { taskId, status, proposal?, error? }
- *   GET  /health                  → { ok, catalogs, ragChunks }
+ *   GET  /health                  → { ok, catalogs, ragChunks, aiProvider, aiModel }
  * key 只在后端;dev 由 vite proxy 转发,免 CORS。
  */
 export function createServer(deps: ServerDeps): Server {
@@ -39,7 +39,14 @@ async function handle(
   const method = req.method ?? 'GET';
   try {
     if (method === 'GET' && url === '/health') {
-      return json(res, 200, { ok: true, catalogs: deps.catalogs.size, ragChunks: deps.ragStore.size() });
+      return json(res, 200, {
+        ok: true,
+        catalogs: deps.catalogs.size,
+        ragChunks: deps.ragStore.size(),
+        aiProvider: deps.chat.id,
+        aiModel: deps.chat.model,
+        embeddingProvider: deps.embedding.id,
+      });
     }
 
     if (method === 'POST' && url === '/agent/proposals') {
