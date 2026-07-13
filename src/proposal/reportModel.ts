@@ -4,8 +4,8 @@
  * 职责:把 ProposalItem[] 映射成 treemap 布局所需的分组 + 权重,并给出方块配色。
  * 契约(设计规格 §3.1):
  *   - 方块权重 weight = 紧迫度基权 × tier 系数。
- *   - 紧迫度基权:mandatory=100 · high=60 · advice=30。
- *   - tier 系数:tier1=1.4 · tier2=1.2 · tier3=1.0 · tier4=0.85。
+ *   - 紧迫度基权采用压缩比例,避免低优先级卡片失去可读空间。
+ *   - tier 系数只做轻量面积提示,优先保证每张卡片都能承载决策信息。
  *   - 一级分组顺序固定:强制 → 高优先 → 建议;空组不产出。
  *
  * 配色(设计规格 §3.4):画布用品牌最深墨 #2A2622;方块按紧迫度取品牌「暖→冷」阶,
@@ -16,16 +16,16 @@ import type { GapUrgency, Portfolio, ProposalItem, ProposalTier } from './types'
 // ─────────────────────────── 权重 ───────────────────────────
 
 export const URGENCY_BASE: Record<GapUrgency, number> = {
-  mandatory: 100,
-  high: 60,
-  advice: 30,
+  mandatory: 64,
+  high: 52,
+  advice: 40,
 };
 
 export const TIER_MULT: Record<ProposalTier, number> = {
-  tier1: 1.4,
-  tier2: 1.2,
+  tier1: 1.12,
+  tier2: 1.06,
   tier3: 1.0,
-  tier4: 0.85,
+  tier4: 0.96,
 };
 
 /** 单个险种的 treemap 权重(面积 ∝ 权重)。字段缺失时退回中性默认,永不返回 0/NaN。 */

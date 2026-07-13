@@ -32,15 +32,15 @@ function mk(lineId: string, urgency: ProposalItem['urgency'], tier: ProposalItem
 
 describe('itemWeight — 紧迫度基权 × tier 系数(§3.1)', () => {
   it('基权与系数按契约取值', () => {
-    expect(URGENCY_BASE).toEqual({ mandatory: 100, high: 60, advice: 30 });
-    expect(TIER_MULT).toEqual({ tier1: 1.4, tier2: 1.2, tier3: 1.0, tier4: 0.85 });
+    expect(URGENCY_BASE).toEqual({ mandatory: 64, high: 52, advice: 40 });
+    expect(TIER_MULT).toEqual({ tier1: 1.12, tier2: 1.06, tier3: 1.0, tier4: 0.96 });
   });
 
-  it('mandatory×tier1 = 140,high×tier2 = 72,advice×tier3 = 30,advice×tier4 = 25.5', () => {
-    expect(itemWeight(mk('a', 'mandatory', 'tier1'))).toBe(140);
-    expect(itemWeight(mk('b', 'high', 'tier2'))).toBe(72);
-    expect(itemWeight(mk('c', 'advice', 'tier3'))).toBe(30);
-    expect(itemWeight(mk('d', 'advice', 'tier4'))).toBeCloseTo(25.5, 5);
+  it('使用压缩后的面积权重,同时保留紧迫度和层级差异', () => {
+    expect(itemWeight(mk('a', 'mandatory', 'tier1'))).toBeCloseTo(71.68, 5);
+    expect(itemWeight(mk('b', 'high', 'tier2'))).toBeCloseTo(55.12, 5);
+    expect(itemWeight(mk('c', 'advice', 'tier3'))).toBe(40);
+    expect(itemWeight(mk('d', 'advice', 'tier4'))).toBeCloseTo(38.4, 5);
   });
 
   it('更紧迫 / 更高层级 → 权重更大(面积更大的单调性)', () => {
@@ -66,7 +66,7 @@ describe('buildReportGroups — 分组顺序 / 空组 / 单组', () => {
     const groups = buildReportGroups(items);
     expect(groups.map((g) => g.key)).toEqual(['mandatory', 'high', 'advice']);
     expect(groups[0].nodes[0].id).toBe('man');
-    expect(groups[0].nodes[0].weight).toBe(140);
+    expect(groups[0].nodes[0].weight).toBeCloseTo(71.68, 5);
   });
 
   it('空组不产出(全部 advice → 只有一组)', () => {

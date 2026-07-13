@@ -351,8 +351,8 @@ function RiskHeatmap({
   const height = width < 560
     ? Math.max(1200, items.length * 175)
     : width < 900
-      ? Math.max(1020, items.length * 135)
-      : Math.max(860, items.length * 112);
+      ? Math.max(900, items.length * 120)
+      : Math.max(720, items.length * 96);
   const rects = useMemo(
     () => bentoLayout(
       items.map((item, order) => ({ id: item.lineId, weight: itemWeight(item), order })),
@@ -368,11 +368,21 @@ function RiskHeatmap({
       {rects.map((rect, index) => {
         const item = itemById.get(rect.id);
         if (!item || item.lineId === selected) return null;
-        const compact = rect.w < 300 || rect.h < 230;
-        const tiny = rect.w < 210 || rect.h < 165;
-        const riskText = item.gapTitles.length > 0
-          ? item.gapTitles.join('、')
-          : item.coverageDirection || `${item.lineName}相关风险需要进一步核实。`;
+        const compact = rect.w < 500 || rect.h < 300;
+        const tiny = rect.w < 260 || rect.h < 195;
+        const directionParts = item.coverageDirection
+          .split(/(?<=[。！？])/u)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const coverageLead = directionParts[0] ?? '';
+        const gapSummary = item.gapTitles.join('、');
+        const riskText = [gapSummary, coverageLead]
+          .filter(Boolean)
+          .join(gapSummary.endsWith('。') ? '' : '。')
+          || `${item.lineName}相关风险需要进一步核实。`;
+        const actionText = directionParts.slice(1).join('')
+          || item.coverageDirection
+          || `结合实际业务确认${item.lineName}的责任范围、赔偿限额和除外约定。`;
         const relationText = item.rationale || `该风险与企业当前业务和经营安排有关，需要结合实际情况确认暴露程度。`;
         return (
           <motion.button
@@ -408,9 +418,7 @@ function RiskHeatmap({
               </span>
               <span className="rp-heat-fact">
                 <span className="rp-heat-fact-label">建议怎么处理</span>
-                <span className="rp-heat-fact-value">
-                  {item.coverageDirection || `结合实际业务确认${item.lineName}的责任范围、赔偿限额和除外约定。`}
-                </span>
+                <span className="rp-heat-fact-value">{actionText}</span>
               </span>
             </span>
             <span className="rp-heat-foot">
