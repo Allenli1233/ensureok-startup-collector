@@ -80,12 +80,12 @@ export function buildReportGroups(items: ProposalItem[]): ReportGroup[] {
 
 // ─────────────────────────── 配色 ───────────────────────────
 
-/** 暖→冷:强制赤陶暖橙(最饱和)→ 高优先陶土金 → 建议冷灰褐(最克制)。
- * 已核 WCAG:白字(#fbf6f0)对比在**基色及最亮微调后仍 ≥4.5:1**(base 5.1–5.6,最亮 4.8+)。 */
+/** 深→浅:强制深红 → 高优先正红 → 建议浅灰红。
+ * 已核 WCAG:白字(#fffaf4)对比在基色上均 ≥4.5:1。 */
 const BLOCK_FILL: Record<GapUrgency, string> = {
-  mandatory: '#AC4B2E',
-  high: '#856031',
-  advice: '#68625A',
+  mandatory: '#9F2F2A',
+  high: '#B54335',
+  advice: '#80635F',
 };
 
 /** 微调锚点:高分向暖亮靠、低分向墨深靠(幅度很小) */

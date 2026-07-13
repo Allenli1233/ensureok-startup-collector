@@ -92,14 +92,14 @@ describe('buildReportGroups — 分组顺序 / 空组 / 单组', () => {
   });
 });
 
-describe('blockColor — 暖→冷 + qualityScore 微调 + 缺省降级', () => {
-  it('缺 qualityScore → 用基色(强制赤陶 / 高优先陶土 / 建议冷灰褐,互不相同)', () => {
+describe('blockColor — 深红→浅灰红 + qualityScore 微调 + 缺省降级', () => {
+  it('缺 qualityScore → 使用强制深红 / 高优先正红 / 建议浅灰红,互不相同', () => {
     const man = blockColor('mandatory').fill;
     const hi = blockColor('high').fill;
     const adv = blockColor('advice').fill;
-    expect(man).toBe('#AC4B2E');
-    expect(hi).toBe('#856031');
-    expect(adv).toBe('#68625A');
+    expect(man).toBe('#9F2F2A');
+    expect(hi).toBe('#B54335');
+    expect(adv).toBe('#80635F');
     expect(new Set([man, hi, adv]).size).toBe(3);
   });
 
@@ -135,7 +135,7 @@ describe('blockColor — 暖→冷 + qualityScore 微调 + 缺省降级', () => 
   });
 
   it('未知紧迫度 → 退回 advice 基色,不崩', () => {
-    expect(blockColor('nope' as never).fill).toBe('#68625A');
+    expect(blockColor('nope' as never).fill).toBe('#80635F');
   });
 });
 

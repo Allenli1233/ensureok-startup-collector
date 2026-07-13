@@ -1558,15 +1558,15 @@
 }
 
 .rp-heat-mandatory {
-  background: #b64d2f !important;
+  background: linear-gradient(145deg, #a9322d 0%, #922d2a 100%) !important;
 }
 
 .rp-heat-high {
-  background: #815839 !important;
+  background: linear-gradient(145deg, #bc4939 0%, #9d3d33 100%) !important;
 }
 
 .rp-heat-advice {
-  background: #66615a !important;
+  background: linear-gradient(145deg, #846a65 0%, #715752 100%) !important;
 }
 
 .rp-heat-top,
@@ -1617,7 +1617,7 @@
 .rp-heat-name {
   max-width: 18ch;
   font-family: Georgia, 'Songti SC', 'STSong', serif;
-  font-size: clamp(22px, 2.35vw, 34px);
+  font-size: clamp(30px, 3vw, 48px);
   font-weight: 700;
   line-height: 1.08;
   letter-spacing: -0.035em;
@@ -1678,7 +1678,7 @@
 }
 
 .rp-heat-compact .rp-heat-name {
-  font-size: clamp(18px, 2vw, 25px);
+  font-size: clamp(25px, 2.5vw, 40px);
 }
 
 .rp-heat-compact .rp-heat-summary {
@@ -1713,7 +1713,7 @@
 }
 
 .rp-heat-tiny .rp-heat-name {
-  font-size: 17px;
+  font-size: 22px;
 }
 
 .rp-heat-tiny .rp-heat-summary {
@@ -1950,7 +1950,7 @@
   }
   .rp-heat-name,
   .rp-heat-compact .rp-heat-name {
-    font-size: 18px;
+    font-size: 24px;
   }
 }
 
