@@ -61,6 +61,10 @@ describe('ReportPage risk heatmap', () => {
     expect(screen.getAllByText('约 ¥8,000-20,000 / 年').length).toBeGreaterThan(0);
     expect(container.textContent).toContain('贵司处理客户数据');
     expect(document.body.textContent).not.toContain('可信度');
+    expect(screen.getByRole('heading', { name: '问问这份报告' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: '报告解读助手' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '输入问题' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '问问这份报告' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /网络安全险.*查看详情/ }));
     expect(screen.getByRole('dialog', { name: '网络安全险风险详情' })).toBeTruthy();
@@ -81,5 +85,7 @@ describe('ReportPage risk heatmap', () => {
     expect(detailCss).toContain('background: #f4eee7;');
     expect(detailCss).toContain('color: #fffaf4;');
     expect(detailCss).toContain('color: #2a231e;');
+    expect(detailCss).toContain('.rd-fluid,\n.rd {\n  height: 100%;\n  overflow: hidden;');
+    expect(detailCss).toContain('.rd-scroll {\n  min-height: 0;\n  overflow-y: auto;');
   });
 });

@@ -26,12 +26,10 @@ export function ReportChatPanel({
   const { messages, loading, ask } = useReportChat(taskId, scope);
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-  useEffect(() => {
+    if (!stickToBottomRef.current) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
   }, [messages, loading, reduce]);
 
@@ -39,6 +37,7 @@ export function ReportChatPanel({
     const q = text.trim();
     if (!q || loading) return;
     setDraft('');
+    stickToBottomRef.current = true;
     void ask(q);
   };
 
@@ -55,7 +54,15 @@ export function ReportChatPanel({
         )}
       </div>
 
-      <div className="rc-stream" ref={scrollRef} aria-live="polite">
+      <div
+        className="rc-stream"
+        ref={scrollRef}
+        aria-live="polite"
+        onScroll={(event) => {
+          const stream = event.currentTarget;
+          stickToBottomRef.current = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 56;
+        }}
+      >
         {messages.length === 0 && (
           <div className="rc-intro">
             <p>问一句,帮你读懂这份报告。只解读报告与条款,不做投保建议、不涉及价格。</p>
@@ -101,7 +108,6 @@ export function ReportChatPanel({
         }}
       >
         <textarea
-          ref={inputRef}
           className="rc-input"
           rows={1}
           value={draft}

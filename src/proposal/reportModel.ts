@@ -113,6 +113,18 @@ export function blockColor(urgency: GapUrgency, qualityScore?: number): BlockCol
   return { fill, glow: hexToRgba(fill, 0.42) };
 }
 
+/**
+ * 热力图连续色阶。rank=0 表示面积最大的卡片,随后由红色平滑过渡到浅暖灰。
+ * 颜色只编码相对处理顺序,险种紧迫度仍由卡片标签明确展示。
+ */
+export function heatmapColor(rank: number, total: number): string {
+  const position = total <= 1 ? 0 : clamp(rank / (total - 1), 0, 1);
+  if (position <= 0.5) {
+    return mixHex('#C44932', '#A65B4D', position / 0.5);
+  }
+  return mixHex('#A65B4D', '#746A65', (position - 0.5) / 0.5);
+}
+
 // ─────────────────────────── 颜色工具(纯函数) ───────────────────────────
 
 function clamp(v: number, lo: number, hi: number): number {

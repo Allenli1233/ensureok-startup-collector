@@ -5,6 +5,7 @@ import {
   itemWeight,
   buildReportGroups,
   blockColor,
+  heatmapColor,
   mixHex,
   parseHex,
 } from './reportModel';
@@ -136,6 +137,21 @@ describe('blockColor — 深红→浅灰红 + qualityScore 微调 + 缺省降级
 
   it('未知紧迫度 → 退回 advice 基色,不崩', () => {
     expect(blockColor('nope' as never).fill).toBe('#80635F');
+  });
+});
+
+describe('heatmapColor — 按卡片面积排名生成连续色阶', () => {
+  it('从最大卡的红色连续过渡到最小卡的浅暖灰', () => {
+    expect(heatmapColor(0, 5)).toBe('#c44932');
+    expect(heatmapColor(2, 5)).toBe('#a65b4d');
+    expect(heatmapColor(4, 5)).toBe('#746a65');
+    expect(new Set(Array.from({ length: 5 }, (_, rank) => heatmapColor(rank, 5))).size).toBe(5);
+  });
+
+  it('单卡与越界排名均稳定降级', () => {
+    expect(heatmapColor(0, 1)).toBe('#c44932');
+    expect(heatmapColor(-2, 5)).toBe('#c44932');
+    expect(heatmapColor(99, 5)).toBe('#746a65');
   });
 });
 
